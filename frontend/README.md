@@ -1,4 +1,4 @@
-# Kanban Studio
+# Northstar Kanban
 
 ## Run
 
@@ -7,9 +7,12 @@ npm install
 npm run dev
 ```
 
-## Tests
+## Verify
 
 ```bash
-npm run test:unit
+npm test
 npm run test:e2e
+npm run lint
+npm run typecheck
+npm run build
 ```

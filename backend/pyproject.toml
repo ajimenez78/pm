@@ -1,0 +1,23 @@
+[project]
+name = "pm-backend"
+version = "0.1.0"
+description = "FastAPI backend for the project management MVP"
+requires-python = ">=3.13,<3.15"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28",
+    "pytest>=8.4",
+    "pytest-cov>=6.3",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.uv]
+package = false
