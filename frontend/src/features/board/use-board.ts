@@ -1,82 +1,107 @@
 "use client";
 
-import { useState } from "react";
-import { createInitialColumns, type BoardColumn } from "./board-data";
+import { useEffect, useState } from "react";
+import {
+  createCard as createCardRequest,
+  deleteCard as deleteCardRequest,
+  getBoard,
+  moveCard as moveCardRequest,
+  renameColumn as renameColumnRequest,
+  updateCard as updateCardRequest,
+} from "./board-api";
+import type { BoardData } from "./board-data";
+
+type BoardStatus = "loading" | "ready" | "error";
 
 export function useBoard() {
-  const [columns, setColumns] = useState<BoardColumn[]>(createInitialColumns);
+  const [board, setBoard] = useState<BoardData | null>(null);
+  const [status, setStatus] = useState<BoardStatus>("loading");
+  const [error, setError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadBoard() {
+      try {
+        const loadedBoard = await getBoard();
+        if (active) {
+          setBoard(loadedBoard);
+          setStatus("ready");
+        }
+      } catch (loadError) {
+        if (active) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Unable to load the board. Please try again.",
+          );
+          setStatus("error");
+        }
+      }
+    }
+
+    void loadBoard();
+
+    return () => {
+      active = false;
+    };
+  }, [loadAttempt]);
+
+  async function saveMutation(
+    mutation: () => Promise<unknown>,
+  ): Promise<boolean> {
+    setError("");
+
+    try {
+      await mutation();
+      setBoard(await getBoard());
+      return true;
+    } catch (mutationError) {
+      setError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : "Unable to update the board. Please try again.",
+      );
+      return false;
+    }
+  }
+
+  function retry() {
+    setError("");
+    setStatus("loading");
+    setLoadAttempt((attempt) => attempt + 1);
+  }
 
   function renameColumn(columnId: string, title: string) {
-    setColumns((current) =>
-      current.map((column) =>
-        column.id === columnId ? { ...column, title } : column,
-      ),
-    );
+    return saveMutation(() => renameColumnRequest(columnId, title));
   }
 
   function addCard(columnId: string, title: string, details: string) {
-    setColumns((current) =>
-      current.map((column) =>
-        column.id === columnId
-          ? {
-              ...column,
-              cards: [...column.cards, { id: crypto.randomUUID(), title, details }],
-            }
-          : column,
-      ),
-    );
+    return saveMutation(() => createCardRequest(columnId, title, details));
   }
 
   function updateCard(cardId: string, title: string, details: string) {
-    setColumns((current) =>
-      current.map((column) => ({
-        ...column,
-        cards: column.cards.map((card) =>
-          card.id === cardId ? { ...card, title, details } : card,
-        ),
-      })),
-    );
+    return saveMutation(() => updateCardRequest(cardId, title, details));
   }
 
   function deleteCard(cardId: string) {
-    setColumns((current) =>
-      current.map((column) => ({
-        ...column,
-        cards: column.cards.filter((card) => card.id !== cardId),
-      })),
-    );
+    return saveMutation(() => deleteCardRequest(cardId));
   }
 
-  function moveCard(cardId: string, destinationId: string) {
-    setColumns((current) => {
-      const source = current.find((column) =>
-        column.cards.some((card) => card.id === cardId),
-      );
-      const destination = current.find(
-        (column) => column.id === destinationId,
-      );
-      const card = source?.cards.find((item) => item.id === cardId);
-
-      if (!source || !destination || !card || source.id === destination.id) {
-        return current;
-      }
-
-      return current.map((column) => {
-        if (column.id === source.id) {
-          return {
-            ...column,
-            cards: column.cards.filter((item) => item.id !== cardId),
-          };
-        }
-
-        if (column.id === destination.id) {
-          return { ...column, cards: [...column.cards, card] };
-        }
-
-        return column;
-      });
-    });
+  function moveCard(cardId: string, columnId: string, position: number) {
+    return saveMutation(() => moveCardRequest(cardId, columnId, position));
   }
 
-  return { columns, renameColumn, addCard, updateCard, deleteCard, moveCard };
+  return {
+    board,
+    status,
+    error,
+    retry,
+    renameColumn,
+    addCard,
+    updateCard,
+    deleteCard,
+    moveCard,
+  };
 }

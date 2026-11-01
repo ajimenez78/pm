@@ -4,6 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthGate } from "./auth-gate";
 
 const fetchMock = vi.fn<typeof fetch>();
+const boardResponse = Response.json({
+  id: "board-1",
+  title: "Product launch",
+  columns: [],
+});
 
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
@@ -31,7 +36,8 @@ describe("AuthGate", () => {
   it("shows the board after valid credentials are accepted", async () => {
     fetchMock
       .mockResolvedValueOnce(new Response(null, { status: 401 }))
-      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(boardResponse.clone());
     const user = userEvent.setup();
 
     render(<AuthGate />);
@@ -73,6 +79,7 @@ describe("AuthGate", () => {
   it("returns to the sign-in form after logout", async () => {
     fetchMock
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(boardResponse.clone())
       .mockResolvedValueOnce(new Response(null, { status: 200 }));
     const user = userEvent.setup();
 
@@ -84,7 +91,7 @@ describe("AuthGate", () => {
     expect(
       await screen.findByRole("heading", { name: "Sign in" }),
     ).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/auth/logout", {
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/auth/logout", {
       method: "POST",
     });
   });

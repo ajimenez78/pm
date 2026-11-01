@@ -404,6 +404,19 @@ a {
     0 1px 3px rgb(29 49 76 / 3%);
 }
 
+.board-panel > h2 {
+  margin: 0 0 10px;
+  color: var(--dark-navy);
+  font-size: 20px;
+  font-weight: 680;
+}
+
+.board-error {
+  margin: 0 0 16px;
+  color: #b44949;
+  font-size: 12px;
+}
+
 .board-heading {
   display: flex;
   align-items: center;

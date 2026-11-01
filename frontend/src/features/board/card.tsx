@@ -9,7 +9,11 @@ import type { BoardCard } from "./board-data";
 type CardProps = {
   card: BoardCard;
   onDelete: (cardId: string) => void;
-  onEdit: (cardId: string, title: string, details: string) => void;
+  onEdit: (
+    cardId: string,
+    title: string,
+    details: string,
+  ) => Promise<boolean>;
 };
 
 export function Card({ card, onDelete, onEdit }: CardProps) {
@@ -27,7 +31,7 @@ export function Card({ card, onDelete, onEdit }: CardProps) {
     transition,
   } = useSortable({ id: card.id });
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedTitle = title.trim();
 
@@ -36,9 +40,11 @@ export function Card({ card, onDelete, onEdit }: CardProps) {
       return;
     }
 
-    onEdit(card.id, trimmedTitle, details.trim());
-    setIsEditing(false);
-    setError("");
+    const saved = await onEdit(card.id, trimmedTitle, details.trim());
+    if (saved) {
+      setIsEditing(false);
+      setError("");
+    }
   }
 
   function handleCancel() {

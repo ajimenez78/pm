@@ -9,7 +9,13 @@ describe("Card", () => {
     render(
       <DndContext>
         <Card
-          card={{ id: "card-1", title: "Plan launch", details: "Brief the team" }}
+          card={{
+            id: "card-1",
+            column_id: "backlog",
+            title: "Plan launch",
+            details: "Brief the team",
+            position: 0,
+          }}
           onDelete={vi.fn()}
           onEdit={vi.fn()}
         />
@@ -26,7 +32,13 @@ describe("Card", () => {
     render(
       <DndContext>
         <Card
-          card={{ id: "card-1", title: "Plan launch", details: "" }}
+          card={{
+            id: "card-1",
+            column_id: "backlog",
+            title: "Plan launch",
+            details: "",
+            position: 0,
+          }}
           onDelete={onDelete}
           onEdit={vi.fn()}
         />

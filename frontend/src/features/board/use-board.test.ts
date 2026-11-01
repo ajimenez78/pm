@@ -1,90 +1,118 @@
-import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { useBoard } from "./use-board";
 
+const fetchMock = vi.fn<typeof fetch>();
+const initialBoard = {
+  id: "board-1",
+  title: "Product launch",
+  columns: [
+    {
+      id: "backlog",
+      title: "Backlog",
+      position: 0,
+      cards: [
+        {
+          id: "card-1",
+          column_id: "backlog",
+          title: "Review brand direction",
+          details: "Align the visual identity.",
+          position: 0,
+        },
+      ],
+    },
+  ],
+};
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  fetchMock.mockReset();
+});
+
 describe("useBoard", () => {
-  it("starts with five columns and sample cards containing only title and details", () => {
+  it("loads the board from the authenticated API", async () => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValue(Response.json(initialBoard));
+
     const { result } = renderHook(() => useBoard());
 
-    expect(result.current.columns).toHaveLength(5);
-    expect(result.current.columns.some((column) => column.cards.length > 0)).toBe(
-      true,
-    );
-    expect(
-      Object.keys(result.current.columns[0].cards[0]).sort(),
-    ).toEqual(["details", "id", "title"]);
+    expect(result.current.status).toBe("loading");
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.board).toEqual(initialBoard);
   });
 
-  it("renames a column without changing the number of columns", () => {
+  it("shows a clear error and retries a failed board load", async () => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(Response.json(initialBoard));
+
     const { result } = renderHook(() => useBoard());
 
-    act(() => result.current.renameColumn(result.current.columns[0].id, "Ideas"));
+    await waitFor(() => expect(result.current.status).toBe("error"));
+    expect(result.current.error).toMatch(/Unable to reach the server/);
 
-    expect(result.current.columns[0].title).toBe("Ideas");
-    expect(result.current.columns).toHaveLength(5);
+    act(() => result.current.retry());
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.board).toEqual(initialBoard);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("adds a card to the requested column", () => {
+  it("refreshes the saved board after a successful column rename", async () => {
+    vi.stubGlobal("fetch", fetchMock);
+    const updatedBoard = {
+      ...initialBoard,
+      columns: [{ ...initialBoard.columns[0], title: "Ideas" }],
+    };
+    fetchMock
+      .mockResolvedValueOnce(Response.json(initialBoard))
+      .mockResolvedValueOnce(
+        Response.json({ ...initialBoard.columns[0], title: "Ideas" }),
+      )
+      .mockResolvedValueOnce(Response.json(updatedBoard));
+
     const { result } = renderHook(() => useBoard());
-    const columnId = result.current.columns[0].id;
+    await waitFor(() => expect(result.current.status).toBe("ready"));
 
-    act(() => result.current.addCard(columnId, "Research", "Review the market"));
-
-    expect(result.current.columns[0].cards.at(-1)).toMatchObject({
-      title: "Research",
-      details: "Review the market",
+    await act(async () => {
+      await expect(result.current.renameColumn("backlog", "Ideas")).resolves.toBe(
+        true,
+      );
     });
+
+    expect(result.current.board?.columns[0].title).toBe("Ideas");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/board/columns/backlog",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/board",
+      { cache: "no-store" },
+    );
   });
 
-  it("updates a card without changing its id or column", () => {
+  it("keeps the saved board visible and reports a failed mutation", async () => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock
+      .mockResolvedValueOnce(Response.json(initialBoard))
+      .mockResolvedValueOnce(
+        Response.json(
+          { detail: "The requested card was not found." },
+          { status: 404 },
+        ),
+      );
+
     const { result } = renderHook(() => useBoard());
-    const column = result.current.columns[0];
-    const card = column.cards[0];
+    await waitFor(() => expect(result.current.status).toBe("ready"));
 
-    act(() =>
-      result.current.updateCard(card.id, "Updated title", "Updated details"),
-    );
-
-    expect(result.current.columns[0].cards[0]).toEqual({
-      id: card.id,
-      title: "Updated title",
-      details: "Updated details",
+    await act(async () => {
+      await expect(result.current.deleteCard("missing")).resolves.toBe(false);
     });
-    expect(result.current.columns[0].id).toBe(column.id);
-  });
 
-  it("deletes the selected card", () => {
-    const { result } = renderHook(() => useBoard());
-    const column = result.current.columns[0];
-    const cardId = column.cards[0].id;
-
-    act(() => result.current.deleteCard(cardId));
-
-    expect(result.current.columns[0].cards).not.toContainEqual(
-      expect.objectContaining({ id: cardId }),
-    );
-  });
-
-  it("moves a card to another column without duplicating it", () => {
-    const { result } = renderHook(() => useBoard());
-    const [source, destination] = result.current.columns;
-    const card = source.cards[0];
-
-    act(() => result.current.moveCard(card.id, destination.id));
-
-    expect(result.current.columns[0].cards).not.toContainEqual(
-      expect.objectContaining({ id: card.id }),
-    );
-    expect(result.current.columns[1].cards).toContainEqual(card);
-  });
-
-  it("keeps a card in place when moved to its current column", () => {
-    const { result } = renderHook(() => useBoard());
-    const source = result.current.columns[0];
-    const originalCards = source.cards;
-
-    act(() => result.current.moveCard(source.cards[0].id, source.id));
-
-    expect(result.current.columns[0].cards).toBe(originalCards);
+    expect(result.current.board).toEqual(initialBoard);
+    expect(result.current.error).toBe("The requested card was not found.");
   });
 });

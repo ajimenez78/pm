@@ -215,23 +215,40 @@ Deliver a local project-management web app with a Kanban board, a hardcoded MVP 
 
 ### Checklist
 
-- [ ] Replace the in-memory sample board as the source of truth with the authenticated board API.
-- [ ] Wire column rename and card create/edit/move/delete actions to backend mutations.
-- [ ] Load the board after sign-in and show clear loading and API error states.
-- [ ] Keep the current board layout and interactions while reflecting saved server state.
-- [ ] Ensure static frontend requests use same-origin API paths served by FastAPI.
+- [x] Replace the in-memory sample board as the source of truth with the authenticated board API.
+- [x] Wire column rename and card create/edit/move/delete actions to backend mutations.
+- [x] Load the board after sign-in and show clear loading and API error states.
+- [x] Keep the current board layout and interactions while reflecting saved server state.
+- [x] Ensure static frontend requests use same-origin API paths served by FastAPI.
 
 ### Verification
 
-- Add or update frontend unit tests for API interactions and visible loading/error states.
-- Add browser tests that make board changes, reload the page, and confirm the changes persist.
-- Test the end-to-end flows in the Docker container rather than relying only on the Next.js development server.
+- [x] Add or update frontend unit tests for API interactions and visible loading/error states.
+- [x] Add browser tests that make board changes, reload the page, and confirm the changes persist.
+- [x] Test the end-to-end flows in the Docker container rather than relying only on the Next.js development server.
 
 ### Success criteria
 
 - Board data comes from SQLite-backed API responses, not local sample state.
 - Board edits survive reloads and remain isolated by signed-in user.
 - The app remains usable when API requests succeed and reports failures clearly when they do not.
+
+### Completion evidence
+
+- The frontend loads the authenticated board from `/api/board` and sends
+  same-origin requests for column rename and card create, edit, move, and delete.
+  Successful mutations reload the server board; failed requests retain the
+  visible board and show an error.
+- `cd frontend && npm test -- --reporter=dot`: 30 tests passed.
+  `npm run lint` and `npm run typecheck` passed. Coverage was not measured
+  because no frontend coverage provider is configured; no tests or tooling were
+  added solely to reach the flexible 80% target.
+- `npm run test:e2e`: 13 passed and the Docker-only persistence test was skipped
+  because this run used the Next.js development server.
+- `docker build --tag pm-mvp:part7 .` succeeded. The full browser suite against
+  the Docker-served static app and a temporary SQLite database passed: 14 tests,
+  including create/edit/move, reload persistence, and cleanup.
+- `git diff --check` passed.
 
 ## Part 8: OpenAI connectivity
 

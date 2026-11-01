@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { Plus, X } from "lucide-react";
 
 type AddCardFormProps = {
-  onAdd: (title: string, details: string) => void;
+  onAdd: (title: string, details: string) => Promise<boolean>;
   onCancel: () => void;
 };
 
@@ -13,7 +13,7 @@ export function AddCardForm({ onAdd, onCancel }: AddCardFormProps) {
   const [details, setDetails] = useState("");
   const [error, setError] = useState("");
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedTitle = title.trim();
 
@@ -22,7 +22,7 @@ export function AddCardForm({ onAdd, onCancel }: AddCardFormProps) {
       return;
     }
 
-    onAdd(trimmedTitle, details.trim());
+    await onAdd(trimmedTitle, details.trim());
   }
 
   return (

@@ -40,11 +40,15 @@ type ColumnProps = {
   isDragging: boolean;
   isEditing: boolean;
   isDropTarget: boolean;
-  onAdd: (title: string, details: string) => void;
+  onAdd: (title: string, details: string) => Promise<boolean>;
   onDelete: (cardId: string) => void;
-  onUpdate: (cardId: string, title: string, details: string) => void;
+  onUpdate: (
+    cardId: string,
+    title: string,
+    details: string,
+  ) => Promise<boolean>;
   onEdit: () => void;
-  onRename: (title: string) => void;
+  onRename: (title: string) => Promise<boolean>;
 };
 
 function BoardColumnView({
@@ -64,11 +68,11 @@ function BoardColumnView({
   const [isAdding, setIsAdding] = useState(false);
   const [columnName, setColumnName] = useState(column.title);
 
-  function handleRename(event: FormEvent<HTMLFormElement>) {
+  async function handleRename(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedName = columnName.trim();
     if (trimmedName) {
-      onRename(trimmedName);
+      await onRename(trimmedName);
     }
   }
 
@@ -159,9 +163,12 @@ function BoardColumnView({
 
       {isAdding ? (
         <AddCardForm
-          onAdd={(title, details) => {
-            onAdd(title, details);
-            setIsAdding(false);
+          onAdd={async (title, details) => {
+            const saved = await onAdd(title, details);
+            if (saved) {
+              setIsAdding(false);
+            }
+            return saved;
           }}
           onCancel={() => setIsAdding(false)}
         />
@@ -182,7 +189,10 @@ function BoardColumnView({
 
 export function Board() {
   const {
-    columns,
+    board,
+    status,
+    error,
+    retry,
     renameColumn,
     addCard,
     updateCard,
@@ -192,6 +202,7 @@ export function Board() {
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
+  const columns = board?.columns ?? [];
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -241,7 +252,23 @@ export function Board() {
       : null;
 
     if (destinationId) {
-      moveCard(active.id.toString(), destinationId);
+      const cardId = active.id.toString();
+      const destination = columns.find((column) => column.id === destinationId);
+      const source = columns.find((column) =>
+        column.cards.some((card) => card.id === cardId),
+      );
+      if (destination && source) {
+        const targetId = over?.id.toString();
+        const targetIndex = destination.cards.findIndex(
+          (card) => card.id === targetId,
+        );
+        const sameColumn = source.id === destination.id;
+        const appendedPosition =
+          destination.cards.length - Number(sameColumn);
+        const targetPosition =
+          targetIndex < 0 ? appendedPosition : targetIndex;
+        void moveCard(cardId, destinationId, targetPosition);
+      }
     }
 
     setActiveCardId(null);
@@ -253,6 +280,30 @@ export function Board() {
     setOverColumnId(null);
   }
 
+  if (status === "loading") {
+    return (
+      <section
+        aria-labelledby="board-title"
+        className="board-panel"
+      >
+        <h2 id="board-title">Project board</h2>
+        <p role="status">Loading your board...</p>
+      </section>
+    );
+  }
+
+  if (status === "error" || !board) {
+    return (
+      <section aria-labelledby="board-title" className="board-panel">
+        <h2 id="board-title">Project board</h2>
+        <p role="alert">{error}</p>
+        <button className="button button-primary" onClick={retry} type="button">
+          Try again
+        </button>
+      </section>
+    );
+  }
+
   return (
     <section className="board-panel" aria-labelledby="board-title">
       <div className="board-heading">
@@ -261,7 +312,7 @@ export function Board() {
             <span className="board-live-dot" />
             YOUR WORKSPACE
           </p>
-          <h2 id="board-title">Product launch</h2>
+          <h2 id="board-title">{board.title}</h2>
           <p className="board-subtitle">
             A little more clarity, one card at a time.
           </p>
@@ -277,6 +328,7 @@ export function Board() {
           </span>
         </div>
       </div>
+      {error && <p className="board-error" role="alert">{error}</p>}
 
       <DndContext
         collisionDetection={collisionDetection}
@@ -296,7 +348,9 @@ export function Board() {
                 isEditing={editingColumnId === column.id}
                 isDropTarget={overColumnId === column.id}
                 key={column.id}
-                onAdd={(title, details) => addCard(column.id, title, details)}
+                onAdd={(title, details) =>
+                  addCard(column.id, title, details)
+                }
                 onDelete={deleteCard}
                 onUpdate={updateCard}
                 onEdit={() =>
@@ -304,9 +358,12 @@ export function Board() {
                     current === column.id ? null : column.id,
                   )
                 }
-                onRename={(title) => {
-                  renameColumn(column.id, title);
-                  setEditingColumnId(null);
+                onRename={async (title) => {
+                  const saved = await renameColumn(column.id, title);
+                  if (saved) {
+                    setEditingColumnId(null);
+                  }
+                  return saved;
                 }}
               />
             ))}
