@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
-from typing import Iterator
+from typing import Iterator, Mapping, Sequence
 from uuid import uuid4
 
 
@@ -118,6 +118,10 @@ SCHEMA_STATEMENTS = (
 
 class InvalidCardPosition(ValueError):
     """Raised when a card position is outside its column's current order."""
+
+
+class InvalidBoardOperation(ValueError):
+    """Raised when a board operation references a missing resource."""
 
 
 class Database:
@@ -260,44 +264,17 @@ class Database:
             board_id = self._get_board_id(connection, user_id)
             if board_id is None:
                 return None
-            column_exists = connection.execute(
-                """
-                SELECT 1 FROM board_columns
-                WHERE board_id = ? AND id = ?
-                """,
-                (board_id, column_id),
-            ).fetchone()
-            if column_exists is None:
-                return None
-            position = connection.execute(
-                """
-                SELECT count(*) FROM cards
-                WHERE board_id = ? AND column_id = ?
-                """,
-                (board_id, column_id),
-            ).fetchone()[0]
-            timestamp = _timestamp()
-            card_id = str(uuid4())
-            connection.execute(
-                """
-                INSERT INTO cards (
-                    id, board_id, column_id, title, details, position,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    card_id,
-                    board_id,
-                    column_id,
-                    title,
-                    details,
-                    position,
-                    timestamp,
-                    timestamp,
-                ),
+            card = self._create_card(
+                connection,
+                board_id,
+                column_id,
+                title,
+                details,
             )
+            if card is None:
+                return None
             self._touch_board(connection, board_id)
-            return self._get_card(connection, board_id, card_id)
+            return card
 
     def update_card(
         self,
@@ -310,18 +287,17 @@ class Database:
             board_id = self._get_board_id(connection, user_id)
             if board_id is None:
                 return None
-            cursor = connection.execute(
-                """
-                UPDATE cards
-                SET title = ?, details = ?, updated_at = ?
-                WHERE board_id = ? AND id = ?
-                """,
-                (title, details, _timestamp(), board_id, card_id),
+            card = self._update_card(
+                connection,
+                board_id,
+                card_id,
+                title,
+                details,
             )
-            if cursor.rowcount == 0:
+            if card is None:
                 return None
             self._touch_board(connection, board_id)
-            return self._get_card(connection, board_id, card_id)
+            return card
 
     def move_card(
         self,
@@ -334,54 +310,63 @@ class Database:
             board_id = self._get_board_id(connection, user_id)
             if board_id is None:
                 return None
-            card = self._get_card(connection, board_id, card_id)
-            if card is None:
-                return None
-            destination_exists = connection.execute(
-                """
-                SELECT 1 FROM board_columns
-                WHERE board_id = ? AND id = ?
-                """,
-                (board_id, destination_column_id),
-            ).fetchone()
-            if destination_exists is None:
-                return None
-
-            source_column_id = str(card["column_id"])
-            source_ids = self._get_card_ids(
+            return self._move_card(
                 connection,
                 board_id,
-                source_column_id,
+                card_id,
+                destination_column_id,
+                position,
             )
-            source_ids.remove(card_id)
-            if source_column_id == destination_column_id:
-                if position > len(source_ids):
-                    raise InvalidCardPosition
-                source_ids.insert(position, card_id)
-                self._set_card_orders(
-                    connection,
-                    board_id,
-                    {source_column_id: source_ids},
-                )
-            else:
-                destination_ids = self._get_card_ids(
-                    connection,
-                    board_id,
-                    destination_column_id,
-                )
-                if position > len(destination_ids):
-                    raise InvalidCardPosition
-                destination_ids.insert(position, card_id)
-                self._set_card_orders(
-                    connection,
-                    board_id,
-                    {
-                        source_column_id: source_ids,
-                        destination_column_id: destination_ids,
-                    },
-                )
-            self._touch_board(connection, board_id)
-            return self._get_card(connection, board_id, card_id)
+
+    def apply_board_operations(
+        self,
+        user_id: str,
+        operations: Sequence[Mapping[str, str | int]],
+    ) -> bool:
+        """Apply AI card operations as one transaction for the user's board."""
+        with self._connection(immediate=True) as connection:
+            board_id = self._get_board_id(connection, user_id)
+            if board_id is None:
+                return False
+
+            for operation in operations:
+                operation_type = operation["type"]
+                if operation_type == "create_card":
+                    card = self._create_card(
+                        connection,
+                        board_id,
+                        str(operation["column_id"]),
+                        str(operation["title"]),
+                        str(operation["details"]),
+                    )
+                    if card is None:
+                        raise InvalidBoardOperation
+                elif operation_type == "edit_card":
+                    card = self._update_card(
+                        connection,
+                        board_id,
+                        str(operation["card_id"]),
+                        str(operation["title"]),
+                        str(operation["details"]),
+                    )
+                    if card is None:
+                        raise InvalidBoardOperation
+                elif operation_type == "move_card":
+                    card = self._move_card(
+                        connection,
+                        board_id,
+                        str(operation["card_id"]),
+                        str(operation["column_id"]),
+                        int(operation["position"]),
+                    )
+                    if card is None:
+                        raise InvalidBoardOperation
+                else:
+                    raise InvalidBoardOperation
+                if operation_type != "move_card":
+                    self._touch_board(connection, board_id)
+
+            return bool(operations)
 
     def delete_card(self, user_id: str, card_id: str) -> bool:
         with self._connection(immediate=True) as connection:
@@ -513,6 +498,130 @@ class Database:
             (board_id, card_id),
         ).fetchone()
         return dict(row) if row else None
+
+    @classmethod
+    def _move_card(
+        cls,
+        connection: sqlite3.Connection,
+        board_id: str,
+        card_id: str,
+        destination_column_id: str,
+        position: int,
+    ) -> dict[str, object] | None:
+        card = cls._get_card(connection, board_id, card_id)
+        if card is None:
+            return None
+        destination_exists = connection.execute(
+            """
+            SELECT 1 FROM board_columns
+            WHERE board_id = ? AND id = ?
+            """,
+            (board_id, destination_column_id),
+        ).fetchone()
+        if destination_exists is None:
+            return None
+
+        source_column_id = str(card["column_id"])
+        source_ids = cls._get_card_ids(
+            connection,
+            board_id,
+            source_column_id,
+        )
+        source_ids.remove(card_id)
+        if source_column_id == destination_column_id:
+            if position > len(source_ids):
+                raise InvalidCardPosition
+            source_ids.insert(position, card_id)
+            cls._set_card_orders(
+                connection,
+                board_id,
+                {source_column_id: source_ids},
+            )
+        else:
+            destination_ids = cls._get_card_ids(
+                connection,
+                board_id,
+                destination_column_id,
+            )
+            if position > len(destination_ids):
+                raise InvalidCardPosition
+            destination_ids.insert(position, card_id)
+            cls._set_card_orders(
+                connection,
+                board_id,
+                {
+                    source_column_id: source_ids,
+                    destination_column_id: destination_ids,
+                },
+            )
+        cls._touch_board(connection, board_id)
+        return cls._get_card(connection, board_id, card_id)
+
+    @staticmethod
+    def _create_card(
+        connection: sqlite3.Connection,
+        board_id: str,
+        column_id: str,
+        title: str,
+        details: str,
+    ) -> dict[str, object] | None:
+        column_exists = connection.execute(
+            """
+            SELECT 1 FROM board_columns
+            WHERE board_id = ? AND id = ?
+            """,
+            (board_id, column_id),
+        ).fetchone()
+        if column_exists is None:
+            return None
+        position = connection.execute(
+            """
+            SELECT count(*) FROM cards
+            WHERE board_id = ? AND column_id = ?
+            """,
+            (board_id, column_id),
+        ).fetchone()[0]
+        timestamp = _timestamp()
+        card_id = str(uuid4())
+        connection.execute(
+            """
+            INSERT INTO cards (
+                id, board_id, column_id, title, details, position,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                card_id,
+                board_id,
+                column_id,
+                title,
+                details,
+                position,
+                timestamp,
+                timestamp,
+            ),
+        )
+        return Database._get_card(connection, board_id, card_id)
+
+    @staticmethod
+    def _update_card(
+        connection: sqlite3.Connection,
+        board_id: str,
+        card_id: str,
+        title: str,
+        details: str,
+    ) -> dict[str, object] | None:
+        cursor = connection.execute(
+            """
+            UPDATE cards
+            SET title = ?, details = ?, updated_at = ?
+            WHERE board_id = ? AND id = ?
+            """,
+            (title, details, _timestamp(), board_id, card_id),
+        )
+        if cursor.rowcount == 0:
+            return None
+        return Database._get_card(connection, board_id, card_id)
 
     @staticmethod
     def _get_card_ids(

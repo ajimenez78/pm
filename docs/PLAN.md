@@ -319,11 +319,11 @@ Deliver a local project-management web app with a Kanban board, a hardcoded MVP 
 
 ### Checklist
 
-- [ ] Add an authenticated chat API that supplies the current user's board, the user's question, and relevant conversation history to the model.
-- [ ] Define a strict Structured Outputs response containing a user-facing reply and zero or more supported board operations.
-- [ ] Support AI-created, edited, and moved cards; apply accepted operations through backend validation and persistence.
-- [ ] Ensure the model cannot change users, create boards, rename fixed columns, or issue unsupported operations.
-- [ ] Return the response and the resulting board state (or a clear indication that no board change occurred).
+- [x] Add an authenticated chat API that supplies the current user's board, the user's question, and relevant conversation history to the model.
+- [x] Define a strict Structured Outputs response containing a user-facing reply and zero or more supported board operations.
+- [x] Support AI-created, edited, and moved cards; apply accepted operations through backend validation and persistence.
+- [x] Ensure the model cannot change users, create boards, rename fixed columns, or issue unsupported operations.
+- [x] Return the response and the resulting board state (or a clear indication that no board change occurred).
 
 ### Verification
 
@@ -336,6 +336,37 @@ Deliver a local project-management web app with a Kanban board, a hardcoded MVP 
 - Responses conform to the declared structured schema.
 - Valid supported operations update only the caller's board; malformed or unsupported operations do not mutate data.
 - Conversation context is provided as agreed, with automated tests independent of OpenAI availability.
+
+### Implementation contract
+
+- The authenticated endpoint is `POST /api/ai/chat`. Its JSON body contains a
+  `question` and up to 20 prior `user`/`assistant` messages in `history`.
+- The request sends the caller's current board and conversation context to
+  `gpt-6-luna`. Responses API storage is disabled; the application does not
+  persist chat history.
+- The strict response schema contains a user-facing `reply` and an `operations`
+  list. Supported operation types are `create_card`, `edit_card`, and
+  `move_card`; column IDs are limited to the five fixed board columns.
+- All operations in a response are applied in one SQLite transaction, scoped
+  to the session user's board. Invalid references or positions reject the
+  entire operation list. Success returns `reply`, the updated `board`, and
+  `changed` (false when no operation was requested).
+
+### Completion evidence
+
+- Nine new API tests cover session enforcement, board/history prompt
+  construction, strict schema, create/edit/move, caller-board isolation,
+  no-op responses, malformed outputs, provider/configuration errors, and
+  rollback for invalid resources and positions.
+- `cd backend && uv run --no-sync pytest --cov=app --cov-report=term-missing`:
+  56 tests passed; total statement coverage remains 95% (93% for
+  `app/database.py`, 97% for `app/main.py`).
+- A live authenticated no-mutation request returned HTTP 200, a board summary,
+  `changed: false`, and an unchanged board using a temporary SQLite database.
+  A separate controlled API test used a mocked model to create, edit, and move
+  cards, then verified the returned board matched the persisted board.
+- `docker build --tag pm-mvp:part9 .`, Python compile checks,
+  `uv lock --check`, and `git diff --check` passed.
 
 ## Part 10: AI chat sidebar
 
