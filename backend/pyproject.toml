@@ -18,7 +18,7 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-markers = ["integration: tests that exercise FastAPI static-file serving"]
+markers = ["integration: tests that exercise the application with an isolated SQLite database"]
 
 [tool.uv]
 package = false

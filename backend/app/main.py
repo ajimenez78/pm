@@ -1,16 +1,24 @@
 """HTTP application for the project management MVP."""
 
+from contextlib import asynccontextmanager
 import os
 import secrets
 from pathlib import Path
 from time import time
+from typing import Annotated, AsyncIterator
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StringConstraints
 
-MVP_USERNAME = "user"
+from app.database import (
+    INITIAL_USERNAME,
+    Database,
+    InvalidCardPosition,
+)
+
+MVP_USERNAME = INITIAL_USERNAME
 MVP_PASSWORD = "password"
 SESSION_COOKIE = "pm_session"
 SESSION_MAX_AGE = 60 * 60 * 12
@@ -52,24 +60,73 @@ class LoginRequest(BaseModel):
     password: str
 
 
-def get_authenticated_username(request: Request) -> str:
-    """Return the signed-in MVP username or reject an invalid session."""
-    session_id = request.cookies.get(SESSION_COOKIE)
-    sessions: dict[str, int] = request.app.state.sessions
-    expires_at = sessions.get(session_id) if session_id else None
+class RenameColumnRequest(BaseModel):
+    title: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=80),
+    ]
 
-    if expires_at is None or expires_at <= int(time()):
+
+class CreateCardRequest(BaseModel):
+    column_id: str
+    title: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=100),
+    ]
+    details: str = Field(default="", max_length=500)
+
+
+class UpdateCardRequest(BaseModel):
+    title: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=100),
+    ]
+    details: str = Field(max_length=500)
+
+
+class MoveCardRequest(BaseModel):
+    column_id: str
+    position: int = Field(ge=0)
+
+
+def get_authenticated_user_id(request: Request) -> str:
+    """Return the session's database user ID or reject invalid sessions."""
+    session_id = request.cookies.get(SESSION_COOKIE)
+    sessions: dict[str, tuple[str, int]] = request.app.state.sessions
+    session = sessions.get(session_id) if session_id else None
+
+    if session is None or session[1] <= int(time()):
         if session_id:
             sessions.pop(session_id, None)
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    return MVP_USERNAME
+    return session[0]
 
 
-def create_app(frontend_build_dir: Path | None = None) -> FastAPI:
+def create_app(
+    frontend_build_dir: Path | None = None,
+    database_path: Path | None = None,
+) -> FastAPI:
     """Create the API and serve the frontend export when it is available."""
-    application = FastAPI(title="Project Management MVP")
-    application.state.sessions: dict[str, int] = {}
+    configured_database_path = database_path or Path(
+        os.environ.get(
+            "DATABASE_PATH",
+            str(Path(__file__).resolve().parents[1] / "data" / "pm.sqlite3"),
+        ),
+    )
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        database = Database(configured_database_path)
+        database.initialize()
+        app.state.database = database
+        yield
+
+    application = FastAPI(
+        title="Project Management MVP",
+        lifespan=lifespan,
+    )
+    application.state.sessions: dict[str, tuple[str, int]] = {}
 
     @application.get("/api/health")
     def get_health() -> dict[str, str]:
@@ -98,7 +155,17 @@ def create_app(frontend_build_dir: Path | None = None) -> FastAPI:
             )
 
         session_id = secrets.token_urlsafe(32)
-        application.state.sessions[session_id] = int(time()) + SESSION_MAX_AGE
+        database: Database = request.app.state.database
+        user_id = database.get_user_id(MVP_USERNAME)
+        if user_id is None:
+            raise HTTPException(
+                status_code=500,
+                detail="MVP user is not initialized",
+            )
+        application.state.sessions[session_id] = (
+            user_id,
+            int(time()) + SESSION_MAX_AGE,
+        )
         response.set_cookie(
             key=SESSION_COOKIE,
             value=session_id,
@@ -113,7 +180,8 @@ def create_app(frontend_build_dir: Path | None = None) -> FastAPI:
     def get_session(request: Request, response: Response) -> dict[str, str]:
         """Return the username attached to a valid server-side session."""
         response.headers["Cache-Control"] = "no-store"
-        return {"username": get_authenticated_username(request)}
+        get_authenticated_user_id(request)
+        return {"username": MVP_USERNAME}
 
     @application.post("/api/auth/logout")
     def logout(request: Request, response: Response) -> dict[str, str]:
@@ -128,6 +196,110 @@ def create_app(frontend_build_dir: Path | None = None) -> FastAPI:
             path="/",
         )
         return {"status": "ok"}
+
+    @application.get("/api/board")
+    def get_board(request: Request) -> dict[str, object]:
+        """Return the current authenticated user's board."""
+        user_id = get_authenticated_user_id(request)
+        database: Database = request.app.state.database
+        board = database.get_board(user_id)
+        if board is None:
+            raise HTTPException(status_code=404, detail="Board not found")
+        return board
+
+    @application.patch("/api/board/columns/{column_id}")
+    def rename_column(
+        column_id: str,
+        payload: RenameColumnRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        """Rename one of the authenticated user's fixed board columns."""
+        user_id = get_authenticated_user_id(request)
+        database: Database = request.app.state.database
+        column = database.rename_column(user_id, column_id, payload.title)
+        if column is None:
+            raise HTTPException(status_code=404, detail="Column not found")
+        return column
+
+    @application.post(
+        "/api/board/cards",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_card(
+        payload: CreateCardRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        """Append a card to one of the authenticated user's columns."""
+        user_id = get_authenticated_user_id(request)
+        database: Database = request.app.state.database
+        card = database.create_card(
+            user_id,
+            payload.column_id,
+            payload.title,
+            payload.details,
+        )
+        if card is None:
+            raise HTTPException(status_code=404, detail="Column not found")
+        return card
+
+    @application.patch("/api/board/cards/{card_id}")
+    def update_card(
+        card_id: str,
+        payload: UpdateCardRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        """Update title and details for a card owned by the current user."""
+        user_id = get_authenticated_user_id(request)
+        database: Database = request.app.state.database
+        card = database.update_card(
+            user_id,
+            card_id,
+            payload.title,
+            payload.details,
+        )
+        if card is None:
+            raise HTTPException(status_code=404, detail="Card not found")
+        return card
+
+    @application.patch("/api/board/cards/{card_id}/move")
+    def move_card(
+        card_id: str,
+        payload: MoveCardRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        """Move and order a card within the authenticated user's board."""
+        user_id = get_authenticated_user_id(request)
+        database: Database = request.app.state.database
+        try:
+            card = database.move_card(
+                user_id,
+                card_id,
+                payload.column_id,
+                payload.position,
+            )
+        except InvalidCardPosition as error:
+            raise HTTPException(
+                status_code=422,
+                detail="Card position is outside the destination column",
+            ) from error
+        if card is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Card or destination column not found",
+            )
+        return card
+
+    @application.delete(
+        "/api/board/cards/{card_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def delete_card(card_id: str, request: Request) -> Response:
+        """Delete a card owned by the authenticated user."""
+        user_id = get_authenticated_user_id(request)
+        database: Database = request.app.state.database
+        if not database.delete_card(user_id, card_id):
+            raise HTTPException(status_code=404, detail="Card not found")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     if frontend_build_dir is not None:
         static_directory = frontend_build_dir

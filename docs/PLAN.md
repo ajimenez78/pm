@@ -145,7 +145,7 @@ Deliver a local project-management web app with a Kanban board, a hardcoded MVP 
 - [x] Define stable identifiers, ownership relationships, ordering, required fields, and deletion/update relationships.
 - [x] Document SQLite initialization and the proposed schema in `docs/`, including how one board per user and fixed columns are represented.
 - [x] Document how conversation history is handled under the assumptions below.
-- [ ] Ask the user to review and approve the schema before implementation.
+- [x] Ask the user to review and approve the schema before implementation.
 
 ### Verification
 
@@ -167,31 +167,49 @@ Deliver a local project-management web app with a Kanban board, a hardcoded MVP 
 - The JSON artifact parses successfully. IDs and constraints were checked
   against the existing board data and the planned Part 6 board and Part 9 AI
   operations.
-- Approval is pending. No database or application persistence code has been
-  implemented; Part 6 remains gated on explicit user approval.
+- The user approved the schema proposal before Part 6 implementation began.
 
 ## Part 6: Backend board API and SQLite persistence
 
 ### Checklist
 
-- [ ] Create the SQLite database and schema automatically when the app starts if the database file does not exist.
-- [ ] Implement authenticated API operations to read the current user's board, rename columns, and create, edit, move, or delete cards.
-- [ ] Enforce board ownership on every read and write; do not accept a user identity supplied by the client as authorization.
-- [ ] Validate request data and return clear HTTP errors for invalid input or missing resources.
-- [ ] Keep board updates consistent when changing card column/order.
+- [x] Create the SQLite database and schema automatically when the app starts if the database file does not exist.
+- [x] Implement authenticated API operations to read the current user's board, rename columns, and create, edit, move, or delete cards.
+- [x] Enforce board ownership on every read and write; do not accept a user identity supplied by the client as authorization.
+- [x] Validate request data and return clear HTTP errors for invalid input or missing resources.
+- [x] Keep board updates consistent when changing card column/order.
 
 ### Verification
 
-- Add backend unit tests for database initialization, board retrieval, every supported mutation, validation failures, and ownership boundaries.
-- Test that a second user can have a separate board and cannot read or modify another user's board.
-- Test persistence by closing/reopening the app or database connection and confirming the saved board remains.
-- Run the backend test suite from a clean database as well as an already initialized database.
+- [x] Add backend tests for database initialization, board retrieval, every supported mutation, validation failures, and ownership boundaries.
+- [x] Test that a second user can have a separate board and cannot read or modify another user's board.
+- [x] Test persistence by closing/reopening the app or database connection and confirming the saved board remains.
+- [x] Run the backend test suite with isolated clean databases and already initialized databases.
 
 ### Success criteria
 
 - Database creation is automatic and repeatable.
 - All required board reads and changes persist in SQLite and are scoped to the authenticated user.
 - Tests cover successful operations, relevant failure cases, and user isolation.
+
+### Completion evidence
+
+- The backend creates a versioned SQLite schema, seeds the MVP user and initial
+  board once, and supports authenticated board reads and mutations. Ownership
+  is derived from the server-side session; card ordering changes use
+  transactions.
+- `cd backend && uv run --no-sync pytest --cov=app --cov-report=term-missing`:
+  43 tests passed; measured backend statement coverage is 95% (94% for
+  `app/database.py`, 97% for `app/main.py`).
+- `uv lock --check` and `git diff --check` passed.
+- `docker build --tag pm-mvp:part6 .` succeeded. The isolated Docker smoke test
+  verified the static frontend, authentication, board read, column rename,
+  card create/edit/move/delete, and session revocation. The verification
+  container used a temporary in-container database path and was stopped after
+  the test.
+- The backend restart test confirms saved board changes remain available after
+  reopening the application. Windows PowerShell verification was explicitly
+  waived by the user.
 
 ## Part 7: Connect the frontend to the backend
 

@@ -13,6 +13,9 @@ Sign in with username `user` and password `password`. This is a local MVP-only
 login, not production authentication. Sessions are held in backend memory for
 up to 12 hours and are invalidated when the backend restarts.
 
+The SQLite database is stored in the persistent Docker volume `pm-mvp-data`
+and initialized with the sample board on first start. For local backend runs,
+the default path is `backend/data/pm.sqlite3`; `DATABASE_PATH` can override it.
+
 The scripts pass the root `.env` into the container when it exists. It is
-optional for this scaffolding. Board data will use the persistent Docker volume
-`pm-mvp-data`.
+optional for the sign-in and board API.

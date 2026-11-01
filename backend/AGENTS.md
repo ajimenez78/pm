@@ -4,6 +4,8 @@
   behavior here until the backend grows enough to justify a separate module.
 - FastAPI serves the static Next.js export at `/`; health and local MVP
   authentication routes are under `/api/`.
+- SQLite defaults to `data/pm.sqlite3` relative to the backend app root; set
+  `DATABASE_PATH` to override it.
 - Run the backend from this directory with
   `FRONTEND_BUILD_DIR=../frontend/out uv run uvicorn app.main:app --reload`.
 - Run tests with `uv run pytest` and coverage with
