@@ -233,6 +233,24 @@ Deliver a local project-management web app with a Kanban board, a hardcoded MVP 
 - Board edits survive reloads and remain isolated by signed-in user.
 - The app remains usable when API requests succeed and reports failures clearly when they do not.
 
+### Frontend integration decisions
+
+- The static frontend calls FastAPI through same-origin `/api/...` paths. The
+  browser uses the existing session cookie; no separate API origin, client-side
+  user identity, or additional data-fetching library is introduced.
+- The frontend fetches the board with caching disabled. After each successful
+  mutation, it reloads the board from the API rather than applying optimistic
+  client-side changes, keeping SQLite's saved order and contents authoritative.
+- If an API request fails, the last loaded board stays visible and the UI shows
+  the error; add, edit, and rename forms remain open. If a write succeeds but
+  its follow-up board read fails, the visible board can be stale even though
+  the write was saved. Reload the page before retrying a create to avoid a
+  duplicate. An expired session is reported as an error rather than silently
+  clearing the workspace. A failed initial board load offers a retry action.
+- Drag-and-drop sends the destination column and insertion position to the API;
+  dropping on a column's empty/trailing area appends the card. The backend
+  transaction remains responsible for consistent persisted ordering.
+
 ### Completion evidence
 
 - The frontend loads the authenticated board from `/api/board` and sends
