@@ -18,3 +18,14 @@ export type BoardData = {
   title: string;
   columns: BoardColumn[];
 };
+
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type AIChatResponse = {
+  reply: string;
+  changed: boolean;
+  board: BoardData;
+};

@@ -247,6 +247,7 @@ async function installAuthApi(page: Page) {
       body: JSON.stringify({ detail: "Board resource not found." }),
     });
   });
+  return board;
 }
 
 async function openBoard(page: Page, useRealApi = false) {
@@ -298,6 +299,95 @@ test("opens one populated board with five columns", async ({ page }) => {
   const board = page.getByRole("region", { name: "Project board" });
   await expect(board.getByRole("region")).toHaveCount(5);
   await expect(board.getByText("Review brand direction")).toBeVisible();
+});
+
+test("chats with the assistant and immediately shows its board changes", async ({
+  page,
+}) => {
+  const useRealApi = Boolean(process.env.PLAYWRIGHT_BASE_URL);
+  const board = useRealApi ? null : await installAuthApi(page);
+  let submittedQuestion = "";
+  await page.route("**/api/ai/chat", async (route) => {
+    const requestBody = route.request().postDataJSON() as {
+      question: string;
+      history: { role: string; content: string }[];
+    };
+    submittedQuestion = requestBody.question;
+    expect(requestBody.history).toEqual([]);
+    const apiBoard = board ?? (await (
+      await page.request.get(`${new URL(page.url()).origin}/api/board`)
+    ).json()) as {
+      columns: {
+        id: string;
+        cards: {
+          id: string;
+          column_id: string;
+          title: string;
+          details: string;
+          position: number;
+        }[];
+      }[];
+    };
+    const upNext = apiBoard.columns.find(
+      (column) => column.id === "up-next",
+    );
+    if (!upNext) {
+      throw new Error("The Up next column should exist.");
+    }
+    upNext.cards.push({
+      id: "card-ai-created",
+      column_id: "up-next",
+      title: "Prepare launch checklist",
+      details: "Check launch readiness.",
+      position: upNext.cards.length,
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        reply: "I added the launch checklist to Up next.",
+        changed: true,
+        board: apiBoard,
+      }),
+    });
+  });
+  await openBoard(page, useRealApi);
+
+  await page.getByRole("button", { name: "Open AI assistant" }).click();
+  await page
+    .getByRole("textbox", { name: "Message the AI assistant" })
+    .fill("Add a launch checklist");
+  await page.getByRole("button", { name: "Send message" }).click();
+
+  await expect(page.getByText("Prepare launch checklist")).toBeVisible();
+  await expect(
+    page.getByText("I added the launch checklist to Up next."),
+  ).toBeVisible();
+  expect(submittedQuestion).toBe("Add a launch checklist");
+});
+
+test("keeps the chat keyboard accessible on a narrow screen", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openBoard(page);
+
+  const assistantButton = page.getByRole("button", {
+    name: "Open AI assistant",
+  });
+  await assistantButton.click();
+
+  const composer = page.getByRole("textbox", {
+    name: "Message the AI assistant",
+  });
+  await expect(composer).toBeVisible();
+  await expect(composer).toBeFocused();
+  await composer.press("Escape");
+
+  await expect(
+    page.getByRole("complementary", { name: "AI assistant" }),
+  ).toHaveCount(0);
+  await expect(assistantButton).toBeFocused();
 });
 
 test("renames a column and adds then deletes a card", async ({ page }) => {

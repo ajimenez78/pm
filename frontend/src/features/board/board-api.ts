@@ -1,4 +1,10 @@
-import type { BoardCard, BoardColumn, BoardData } from "./board-data";
+import type {
+  AIChatResponse,
+  BoardCard,
+  BoardColumn,
+  BoardData,
+  ChatMessage,
+} from "./board-data";
 
 function getErrorDetail(body: unknown): string | null {
   if (
@@ -76,6 +82,16 @@ function jsonRequest(method: "PATCH" | "POST", body: object): RequestInit {
 
 export function getBoard(): Promise<BoardData> {
   return requestJson<BoardData>("/api/board", { cache: "no-store" });
+}
+
+export function sendChatMessage(
+  question: string,
+  history: ChatMessage[],
+): Promise<AIChatResponse> {
+  return requestJson<AIChatResponse>(
+    "/api/ai/chat",
+    jsonRequest("POST", { question, history }),
+  );
 }
 
 export function renameColumn(

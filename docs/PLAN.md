@@ -372,17 +372,29 @@ Deliver a local project-management web app with a Kanban board, a hardcoded MVP 
 
 ### Checklist
 
-- [ ] Add a responsive sidebar chat interface to the board.
-- [ ] Display the conversation, allow the user to submit a question, and show pending and error states.
-- [ ] Send the question and conversation history to the Part 9 endpoint.
-- [ ] Apply returned board changes to the visible board without requiring a manual page reload.
-- [ ] Keep the chat and board usable on narrow screens and with keyboard navigation.
+- [x] Add a responsive sidebar chat interface to the board.
+- [x] Display the conversation, allow the user to submit a question, and show pending and error states.
+- [x] Send the question and conversation history to the Part 9 endpoint.
+- [x] Apply returned board changes to the visible board without requiring a manual page reload.
+- [x] Keep the chat and board usable on narrow screens and with keyboard navigation.
 
 ### Verification
 
 - Add frontend unit tests for chat submission, responses, errors, and applying returned board state.
 - Add browser tests for a complete chat exchange and for an AI operation that changes a card and updates the board view.
 - Run frontend lint, type-check, unit tests, end-to-end tests, and production build; verify the complete flow in Docker with a mocked or controlled AI response.
+
+### Completion evidence
+
+- `npm run lint`, `npm run typecheck`, `npm test` (36 tests), and
+  `npm run build` passed.
+- `npm run test:e2e` passed 15 tests; the existing Docker-only persistence
+  test was skipped in the local run.
+- `docker build --tag pm-mvp:part10 .` passed. The container health endpoint
+  returned `{"status":"ok"}`.
+- `PLAYWRIGHT_BASE_URL=http://127.0.0.1:18080 npx playwright test e2e/board.spec.ts --grep 'chats with the assistant'`
+  passed against the Docker app using real sign-in and board APIs and a
+  controlled AI response. The temporary container was stopped after the test.
 
 ### Success criteria
 

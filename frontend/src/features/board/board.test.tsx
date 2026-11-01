@@ -95,6 +95,46 @@ describe("Board", () => {
     expect(screen.getByText("Review brand direction")).toBeInTheDocument();
   });
 
+  it("applies the board returned by chat without reloading it", async () => {
+    const updatedBoard = structuredClone(board);
+    updatedBoard.columns[1].cards.push({
+      id: "card-from-chat",
+      column_id: "up-next",
+      title: "Prepare launch checklist",
+      details: "Created by the AI assistant.",
+      position: 0,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input) === "/api/board") {
+        return Response.json(board);
+      }
+      if (String(input) === "/api/ai/chat" && init?.method === "POST") {
+        return Response.json({
+          reply: "I added the launch checklist.",
+          changed: true,
+          board: updatedBoard,
+        });
+      }
+      return Response.json({});
+    });
+    const user = userEvent.setup();
+
+    render(<Board />);
+
+    await screen.findByRole("heading", { name: "Product launch" });
+    await user.click(screen.getByRole("button", { name: "Open AI assistant" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Message the AI assistant" }),
+      "Add a launch checklist",
+    );
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(await screen.findByText("Prepare launch checklist")).toBeInTheDocument();
+    expect(screen.getByText("I added the launch checklist.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("saves a column rename through the API", async () => {
     installBoardApiMock();
     const user = userEvent.setup();

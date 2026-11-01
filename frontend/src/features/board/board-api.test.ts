@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  sendChatMessage,
   createCard,
   deleteCard,
   getBoard,
@@ -26,6 +27,38 @@ describe("board API", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/board", {
       cache: "no-store",
     });
+  });
+
+  it("sends a chat question and prior conversation to the authenticated API", async () => {
+    const response = {
+      reply: "I added the task.",
+      changed: true,
+      board: { id: "board-1", title: "Product launch", columns: [] },
+    };
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValue(Response.json(response));
+
+    await expect(
+      sendChatMessage("Add a task", [
+        { role: "user", content: "What is on the board?" },
+        { role: "assistant", content: "Launch tasks." },
+      ]),
+    ).resolves.toEqual(response);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/ai/chat",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: "Add a task",
+          history: [
+            { role: "user", content: "What is on the board?" },
+            { role: "assistant", content: "Launch tasks." },
+          ],
+        }),
+      }),
+    );
   });
 
   it("renames a column through the same-origin API", async () => {

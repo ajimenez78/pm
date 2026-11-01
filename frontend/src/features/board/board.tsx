@@ -27,12 +27,14 @@ import {
   PanelsTopLeft,
   Pencil,
   Plus,
+  Sparkles,
   X,
 } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { AddCardForm } from "./add-card-form";
 import type { BoardColumn } from "./board-data";
 import { Card } from "./card";
+import { ChatPanel } from "./chat-panel";
 import { useBoard } from "./use-board";
 
 type ColumnProps = {
@@ -198,10 +200,13 @@ export function Board() {
     updateCard,
     deleteCard,
     moveCard,
+    applyBoardUpdate,
   } = useBoard();
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const assistantButtonRef = useRef<HTMLButtonElement>(null);
   const columns = board?.columns ?? [];
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -280,6 +285,11 @@ export function Board() {
     setOverColumnId(null);
   }
 
+  function closeChat() {
+    setIsChatOpen(false);
+    assistantButtonRef.current?.focus();
+  }
+
   if (status === "loading") {
     return (
       <section
@@ -317,15 +327,28 @@ export function Board() {
             A little more clarity, one card at a time.
           </p>
         </div>
-        <div className="board-summary" aria-label="Board summary">
-          <span className="board-summary-icon">
-            <PanelsTopLeft aria-hidden="true" size={18} />
-          </span>
-          <span>
-            <strong>{columns.length} columns</strong>
-            <span className="summary-separator">/</span>
-            <strong>{cardCount} cards</strong>
-          </span>
+        <div className="board-heading-actions">
+          <div className="board-summary" aria-label="Board summary">
+            <span className="board-summary-icon">
+              <PanelsTopLeft aria-hidden="true" size={18} />
+            </span>
+            <span>
+              <strong>{columns.length} columns</strong>
+              <span className="summary-separator">/</span>
+              <strong>{cardCount} cards</strong>
+            </span>
+          </div>
+          <button
+            aria-controls="ai-chat-panel"
+            aria-expanded={isChatOpen}
+            className="button button-primary ai-chat-toggle"
+            onClick={() => setIsChatOpen((open) => !open)}
+            ref={assistantButtonRef}
+            type="button"
+          >
+            <Sparkles aria-hidden="true" size={15} />
+            {isChatOpen ? "Close AI assistant" : "Open AI assistant"}
+          </button>
         </div>
       </div>
       {error && <p className="board-error" role="alert">{error}</p>}
@@ -387,6 +410,12 @@ export function Board() {
           )}
         </DragOverlay>
       </DndContext>
+      {isChatOpen && (
+        <ChatPanel
+          onBoardUpdate={applyBoardUpdate}
+          onClose={closeChat}
+        />
+      )}
     </section>
   );
 }

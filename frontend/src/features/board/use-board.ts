@@ -93,6 +93,12 @@ export function useBoard() {
     return saveMutation(() => moveCardRequest(cardId, columnId, position));
   }
 
+  function applyBoardUpdate(updatedBoard: BoardData) {
+    setBoard(updatedBoard);
+    setError("");
+    setStatus("ready");
+  }
+
   return {
     board,
     status,
@@ -103,5 +109,6 @@ export function useBoard() {
     updateCard,
     deleteCard,
     moveCard,
+    applyBoardUpdate,
   };
 }
