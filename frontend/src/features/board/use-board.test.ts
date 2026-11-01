@@ -36,6 +36,23 @@ describe("useBoard", () => {
     });
   });
 
+  it("updates a card without changing its id or column", () => {
+    const { result } = renderHook(() => useBoard());
+    const column = result.current.columns[0];
+    const card = column.cards[0];
+
+    act(() =>
+      result.current.updateCard(card.id, "Updated title", "Updated details"),
+    );
+
+    expect(result.current.columns[0].cards[0]).toEqual({
+      id: card.id,
+      title: "Updated title",
+      details: "Updated details",
+    });
+    expect(result.current.columns[0].id).toBe(column.id);
+  });
+
   it("deletes the selected card", () => {
     const { result } = renderHook(() => useBoard());
     const column = result.current.columns[0];

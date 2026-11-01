@@ -1,7 +1,87 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function waitForKeyboardSensor(page: Page) {
+  await page.evaluate(
+    () => new Promise<void>((resolve) => window.setTimeout(resolve, 0)),
+  );
+}
+
+async function installAuthApi(page: Page) {
+  if (process.env.PLAYWRIGHT_BASE_URL) {
+    return;
+  }
+
+  let isSignedIn = false;
+  await page.route("**/api/auth/session", (route) =>
+    route.fulfill({
+      status: isSignedIn ? 200 : 401,
+      contentType: "application/json",
+      body: JSON.stringify(
+        isSignedIn ? { username: "user" } : { detail: "Not authenticated" },
+      ),
+    }),
+  );
+  await page.route("**/api/auth/login", async (route) => {
+    isSignedIn = true;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ username: "user" }),
+    });
+  });
+  await page.route("**/api/auth/logout", async (route) => {
+    isSignedIn = false;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ status: "ok" }),
+    });
+  });
+}
+
+async function openBoard(page: Page) {
+  await installAuthApi(page);
+  await page.goto("/");
+  await page.getByLabel("Username").fill("user");
+  await page.getByLabel("Password").fill("password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(
+    page.getByRole("region", { name: "Project board" }),
+  ).toBeVisible();
+}
+
+test("keeps a direct board visit behind the sign-in screen", async ({ page }) => {
+  await installAuthApi(page);
+  await page.goto("/#board");
+
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Project board" }),
+  ).toHaveCount(0);
+});
+
+test("signs in, shows the board, and returns to sign in after logout", async ({
+  page,
+}) => {
+  await installAuthApi(page);
+  await page.goto("/");
+  await page.getByLabel("Username").fill("user");
+  await page.getByLabel("Password").fill("password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(
+    page.getByRole("region", { name: "Project board" }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Project board" }),
+  ).toHaveCount(0);
+});
 
 test("opens one populated board with five columns", async ({ page }) => {
-  await page.goto("/");
+  await openBoard(page);
 
   const board = page.getByRole("region", { name: "Project board" });
   await expect(board.getByRole("region")).toHaveCount(5);
@@ -9,7 +89,7 @@ test("opens one populated board with five columns", async ({ page }) => {
 });
 
 test("renames a column and adds then deletes a card", async ({ page }) => {
-  await page.goto("/");
+  await openBoard(page);
 
   await page.getByRole("button", { name: "Rename Backlog column" }).click();
   const columnName = page.getByRole("textbox", { name: "Column name" });
@@ -29,8 +109,28 @@ test("renames a column and adds then deletes a card", async ({ page }) => {
   await expect(page.getByText("Research")).toHaveCount(0);
 });
 
+test("edits a card title and details", async ({ page }) => {
+  await openBoard(page);
+
+  await page
+    .getByRole("button", { name: "Edit card: Review brand direction" })
+    .click();
+  await page
+    .getByRole("textbox", { name: "Card title" })
+    .fill("Review product direction");
+  await page
+    .getByRole("textbox", { name: "Details" })
+    .fill("Align on the product story.");
+  await page.getByRole("button", { name: "Save card" }).click();
+
+  await expect(
+    page.getByRole("heading", { name: "Review product direction" }),
+  ).toBeVisible();
+  await expect(page.getByText("Align on the product story.")).toBeVisible();
+});
+
 test("moves a card between columns with drag and drop", async ({ page }) => {
-  await page.goto("/");
+  await openBoard(page);
 
   const backlog = page.getByRole("region", { name: "Backlog" });
   const upNext = page.getByRole("region", { name: "Up next" });
@@ -46,7 +146,7 @@ test("moves a card between columns with drag and drop", async ({ page }) => {
 test("shows the dragged card and a clear destination before dropping", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openBoard(page);
 
   const backlog = page.getByRole("region", { name: "Backlog", exact: true });
   const upNext = page.getByRole("region", { name: "Up next", exact: true });
@@ -88,7 +188,7 @@ test("shows the dragged card and a clear destination before dropping", async ({
 });
 
 test("cancels a keyboard drag without moving the card", async ({ page }) => {
-  await page.goto("/");
+  await openBoard(page);
 
   const backlog = page.getByRole("region", { name: "Backlog", exact: true });
   const cardTitle = "Review brand direction";
@@ -102,6 +202,7 @@ test("cancels a keyboard drag without moving the card", async ({ page }) => {
       exact: true,
     }),
   ).toBeVisible();
+  await waitForKeyboardSensor(page);
   await page.keyboard.press("Escape");
 
   await expect(backlog.getByText(cardTitle)).toBeVisible();
@@ -116,7 +217,7 @@ test("cancels a keyboard drag without moving the card", async ({ page }) => {
 test("dropping outside the board leaves the card where it started", async ({
   page,
 }) => {
-  await page.goto("/");
+  await openBoard(page);
 
   const backlog = page.getByRole("region", { name: "Backlog", exact: true });
   const cardTitle = "Review brand direction";
@@ -146,7 +247,7 @@ test("dropping outside the board leaves the card where it started", async ({
 });
 
 test("resets changes after reload", async ({ page }) => {
-  await page.goto("/");
+  await openBoard(page);
 
   await page.getByRole("button", { name: "Rename Backlog column" }).click();
   await page.getByRole("textbox", { name: "Column name" }).fill("Ideas");
@@ -162,15 +263,24 @@ test("resets changes after reload", async ({ page }) => {
 });
 
 test("moves a card between columns with the keyboard", async ({ page }) => {
-  await page.goto("/");
+  await openBoard(page);
 
   const handle = page.getByRole("button", {
     name: "Move card: Review brand direction",
   });
   await handle.focus();
   await page.keyboard.press("Space");
+  await expect(
+    page.getByRole("region", {
+      name: "Dragging card: Review brand direction",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await waitForKeyboardSensor(page);
   await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("status")).toContainText("card-product-copy");
+  await expect(
+    page.getByRole("region", { name: "Up next", exact: true }).getByText("Drop here"),
+  ).toBeVisible();
   await page.keyboard.press("Space");
 
   await expect(
@@ -182,7 +292,7 @@ test("moves a card between columns with the keyboard", async ({ page }) => {
 
 test("keeps all five columns usable in a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await openBoard(page);
 
   const board = page.getByRole("region", { name: "Project board" });
   await expect(board.getByRole("region")).toHaveCount(5);

@@ -18,6 +18,9 @@ Deliver a local project-management web app with a Kanban board, a hardcoded MVP 
 - Work through the parts in order. Each part has a checklist, verification steps, and a completion gate.
 - Mark checklist items only after implementation and verification are complete.
 - Keep working documentation under `docs/`.
+- Aim for at least 80% test coverage when valuable, representative tests make it
+  sensible. This is a target, not a gate: do not add tests solely to reach the
+  percentage, and report the measured result if it is lower.
 - Do not begin Parts 2–10 until the user has reviewed and approved this plan.
 - Part 5 has an additional approval gate: the user must approve the database schema before it is implemented in Part 6.
 - Report failed tests and unresolved assumptions explicitly; do not mark a part complete while its success criteria are unmet.
@@ -74,47 +77,65 @@ Deliver a local project-management web app with a Kanban board, a hardcoded MVP 
 
 ### Checklist
 
-- [ ] Configure Next.js for static export compatible with the FastAPI static-file serving approach.
-- [ ] Build and serve the frontend at `/`, replacing the temporary example page.
-- [ ] Preserve the current five-column board, column rename, card add/delete, and pointer/keyboard drag-and-drop behavior.
-- [ ] Add card title/details editing so the frontend meets the card-editing requirement.
-- [ ] Keep the existing visual style and responsive behavior unless a change is required for static serving.
-- [ ] Add or update tests for any changed behavior.
+- [x] Configure Next.js for static export compatible with the FastAPI static-file serving approach.
+- [x] Build and serve the frontend at `/`, replacing the temporary example page.
+- [x] Preserve the current five-column board, column rename, card add/delete, and pointer/keyboard drag-and-drop behavior.
+- [x] Add card title/details editing so the frontend meets the card-editing requirement.
+- [x] Keep the existing visual style and responsive behavior unless a change is required for static serving.
+- [x] Add or update tests for any changed behavior.
 
 ### Verification
 
-- Run frontend `npm run lint`, `npm run typecheck`, `npm test`, `npm run test:e2e`, and `npm run build`.
-- Build the container and verify the exported app and static assets load at `/` through FastAPI.
-- Exercise the board at desktop and narrow viewport sizes.
+- [x] Frontend `npm run lint`, `npm run typecheck`, `npm test`, `npm run test:e2e`, and `npm run build` pass.
+- [x] Backend tests pass, covering the static frontend route, static assets, API health, and missing export configuration.
+- [x] Build the container and verify the exported app and static assets load at `/` through FastAPI.
+- [x] Exercise the board at desktop and narrow viewport sizes.
 
 ### Success criteria
 
-- The app is served at `/` by FastAPI from a successful static frontend build.
-- All listed board interactions work and remain covered by unit and browser tests.
-- No frontend interaction requires a Next.js server runtime after export.
+- [x] The app is served at `/` by FastAPI from a successful static frontend build.
+- [x] All listed board interactions work and remain covered by unit and browser tests.
+- [x] No frontend interaction requires a Next.js server runtime after export.
+
+### Completion evidence
+
+- `npm run build` generated the Next.js static export; the Docker multi-stage build copied it into the FastAPI runtime image.
+- FastAPI served the exported page and stylesheet at `/` and `/_next/static/...`; `/api/health` remained available.
+- All 19 frontend unit tests passed; all 10 Playwright tests passed against both the Docker-served export and the Next.js development server.
+- Frontend lint and type-check passed. All 6 backend tests passed with 100% measured coverage for `app/main.py`.
+- Confirmed the Python runtime image serves the app without Node.js installed. The verification container was stopped after testing.
 
 ## Part 4: MVP sign-in and sign-out
 
 ### Checklist
 
-- [ ] Add a login screen that accepts only the MVP credentials `user` / `password`.
-- [ ] Add backend login and logout behavior and a server-validated session for protected app routes.
-- [ ] Protect the board so it is only shown to an authenticated session.
-- [ ] Add a visible logout action and return the user to the login screen after logout.
-- [ ] Keep the implementation explicitly MVP-only; do not imply production-grade identity management.
+- [x] Add a login screen that accepts only the MVP credentials `user` / `password`.
+- [x] Add backend login and logout behavior and a server-validated session for protected app routes.
+- [x] Protect the board so it is only shown to an authenticated session.
+- [x] Add a visible logout action and return the user to the login screen after logout.
+- [x] Keep the implementation explicitly MVP-only; do not imply production-grade identity management.
 
 ### Verification
 
-- Add backend tests for accepted/rejected credentials, session validation, and logout invalidation.
-- Add frontend tests for the signed-out state, successful login, rejected login, and logout.
-- Add browser coverage for the full login-to-board-to-logout flow, including a direct visit to the board while signed out.
-- Confirm the frontend build remains statically exportable and auth state is enforced by the backend, not only hidden in the UI.
+- [x] Add backend tests for accepted/rejected credentials, session validation, expiry, and logout invalidation.
+- [x] Add frontend tests for the signed-out state, successful login, rejected login, and logout.
+- [x] Add browser coverage for the full login-to-board-to-logout flow, including a direct visit to the board while signed out.
+- [x] Confirm the frontend build remains statically exportable and auth state is enforced by the backend, not only hidden in the UI.
 
 ### Success criteria
 
-- Correct credentials allow access; incorrect or absent credentials do not.
-- Logout invalidates the session and prevents access to protected board data.
-- The login flow works in the Docker setup.
+- [x] Correct credentials allow access; incorrect or absent credentials do not.
+- [x] Logout invalidates the session and prevents access to the board.
+- [x] The login flow works in the Docker setup.
+
+### Completion evidence
+
+- Login accepts only `user` / `password`; the backend issues a random, expiring, HttpOnly, SameSite=Lax session cookie and validates it against in-memory session state.
+- Logout removes the server-side session, so replaying the old cookie is rejected. The static page renders the board only after `/api/auth/session` confirms an active session.
+- Backend tests: 12 passed; `app/main.py` measured 100% statement coverage (65 statements) using `uv run --no-sync pytest --cov=app --cov-report=term-missing`.
+- Frontend tests: 23 unit/component tests and 12 Playwright browser tests passed. Browser tests passed against the Next.js dev server with mocked auth and the Docker-served app with real auth endpoints.
+- Frontend lint, type-check, and static build passed. Frontend coverage was not measured because no Vitest coverage provider is installed; no coverage tooling or tests were added solely to reach a percentage.
+- The Docker app returned a healthy API response, and the verification container was stopped. The local MVP session store resets when the backend restarts; it is not production authentication.
 
 ## Part 5: Database model proposal
 

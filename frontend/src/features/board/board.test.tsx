@@ -53,6 +53,55 @@ describe("Board", () => {
     expect(screen.getByText("Review the market")).toBeInTheDocument();
   });
 
+  it("edits a card title and details", async () => {
+    const user = userEvent.setup();
+    render(<Board />);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Edit card: Review brand direction",
+      }),
+    );
+    await user.clear(screen.getByRole("textbox", { name: "Card title" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Card title" }),
+      "Review product direction",
+    );
+    await user.clear(screen.getByRole("textbox", { name: "Details" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Details" }),
+      "Align on the product story.",
+    );
+    await user.click(screen.getByRole("button", { name: "Save card" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Review product direction" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Align on the product story.")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Review brand direction"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the card editor open when its title is only whitespace", async () => {
+    const user = userEvent.setup();
+    render(<Board />);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Edit card: Review brand direction",
+      }),
+    );
+    const title = screen.getByRole("textbox", { name: "Card title" });
+    await user.clear(title);
+    await user.type(title, "   ");
+    await user.click(screen.getByRole("button", { name: "Save card" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a card title.");
+    expect(title).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save card" })).toBeVisible();
+  });
+
   it("keeps the add form open when the required card title is empty", async () => {
     const user = userEvent.setup();
     render(<Board />);

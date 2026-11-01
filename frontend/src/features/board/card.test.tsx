@@ -11,6 +11,7 @@ describe("Card", () => {
         <Card
           card={{ id: "card-1", title: "Plan launch", details: "Brief the team" }}
           onDelete={vi.fn()}
+          onEdit={vi.fn()}
         />
       </DndContext>,
     );
@@ -27,6 +28,7 @@ describe("Card", () => {
         <Card
           card={{ id: "card-1", title: "Plan launch", details: "" }}
           onDelete={onDelete}
+          onEdit={vi.fn()}
         />
       </DndContext>,
     );

@@ -27,6 +27,17 @@ export function useBoard() {
     );
   }
 
+  function updateCard(cardId: string, title: string, details: string) {
+    setColumns((current) =>
+      current.map((column) => ({
+        ...column,
+        cards: column.cards.map((card) =>
+          card.id === cardId ? { ...card, title, details } : card,
+        ),
+      })),
+    );
+  }
+
   function deleteCard(cardId: string) {
     setColumns((current) =>
       current.map((column) => ({
@@ -67,5 +78,5 @@ export function useBoard() {
     });
   }
 
-  return { columns, renameColumn, addCard, deleteCard, moveCard };
+  return { columns, renameColumn, addCard, updateCard, deleteCard, moveCard };
 }

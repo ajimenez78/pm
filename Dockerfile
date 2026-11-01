@@ -1,3 +1,13 @@
+FROM node:24-bookworm-slim AS frontend-build
+
+WORKDIR /app/frontend
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN npm run build
+
 FROM python:3.13-slim
 
 COPY --from=ghcr.io/astral-sh/uv:0.12.23 /uv /uvx /bin/
@@ -11,13 +21,15 @@ COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY backend/app ./app
+COPY --from=frontend-build /app/frontend/out ./frontend/out
 
 RUN groupadd --system app \
     && useradd --system --uid 10001 --gid app --create-home app \
     && mkdir -p /app/data \
     && chown app:app /app/data
 
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PATH="/app/.venv/bin:$PATH" \
+    FRONTEND_BUILD_DIR=/app/frontend/out
 
 USER app
 

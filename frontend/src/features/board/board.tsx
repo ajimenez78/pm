@@ -42,6 +42,7 @@ type ColumnProps = {
   isDropTarget: boolean;
   onAdd: (title: string, details: string) => void;
   onDelete: (cardId: string) => void;
+  onUpdate: (cardId: string, title: string, details: string) => void;
   onEdit: () => void;
   onRename: (title: string) => void;
 };
@@ -53,6 +54,7 @@ function BoardColumnView({
   isDropTarget,
   onAdd,
   onDelete,
+  onUpdate,
   onEdit,
   onRename,
 }: ColumnProps) {
@@ -138,7 +140,12 @@ function BoardColumnView({
       >
         <div className="card-list">
           {column.cards.map((card) => (
-            <Card card={card} key={card.id} onDelete={onDelete} />
+            <Card
+              card={card}
+              key={card.id}
+              onDelete={onDelete}
+              onEdit={onUpdate}
+            />
           ))}
         </div>
       </SortableContext>
@@ -174,7 +181,14 @@ function BoardColumnView({
 }
 
 export function Board() {
-  const { columns, renameColumn, addCard, deleteCard, moveCard } = useBoard();
+  const {
+    columns,
+    renameColumn,
+    addCard,
+    updateCard,
+    deleteCard,
+    moveCard,
+  } = useBoard();
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
@@ -284,6 +298,7 @@ export function Board() {
                 key={column.id}
                 onAdd={(title, details) => addCard(column.id, title, details)}
                 onDelete={deleteCard}
+                onUpdate={updateCard}
                 onEdit={() =>
                   setEditingColumnId((current) =>
                     current === column.id ? null : column.id,
