@@ -272,10 +272,10 @@ Deliver a local project-management web app with a Kanban board, a hardcoded MVP 
 
 ### Checklist
 
-- [ ] Add a backend-only OpenAI client configured with `OPENAI_API_KEY` and model `gpt-6-luna`.
-- [ ] Add a minimal connectivity operation that asks the model a simple `2+2` question.
-- [ ] Keep API credentials on the server and out of frontend bundles, logs, and responses.
-- [ ] Document how to configure the key locally without publishing its value.
+- [x] Add a backend-only OpenAI client configured with `OPENAI_API_KEY` and model `gpt-6-luna`.
+- [x] Add a minimal connectivity operation that asks the model a simple `2+2` question.
+- [x] Keep API credentials on the server and out of frontend bundles, logs, and responses.
+- [x] Document how to configure the key locally without publishing its value.
 
 ### Verification
 
@@ -288,6 +288,32 @@ Deliver a local project-management web app with a Kanban board, a hardcoded MVP 
 - The backend can make a successful live request with the configured model and key.
 - Automated tests cover the backend integration deterministically.
 - The key is never exposed to the browser or committed.
+
+### User decisions and implementation contract
+
+- The user chose an authenticated backend API operation for the connectivity
+  check and confirmed a valid key is available locally. The key value is not
+  recorded in this plan.
+- The operation is `POST /api/ai/connectivity`, uses the existing session
+  cookie, and asks `gpt-6-luna` "What is 2+2?". Success returns only the answer.
+  Missing configuration returns a clear service-unavailable error; provider
+  failures return a generic error without provider details.
+
+### Completion evidence
+
+- The authenticated endpoint uses the server-side OpenAI SDK and returns only
+  the model answer. Tests cover unauthenticated access, success, missing
+  configuration, and provider errors without making live calls.
+- `cd backend && uv run --no-sync pytest --cov=app --cov-report=term-missing`:
+  47 tests passed; backend statement coverage is 95% (97% for `app/main.py`).
+- A manual live request using the ignored root `.env` returned HTTP 200 with
+  answer `4`. The key value was not displayed or recorded.
+- `uv lock --check` passed, and `docker build --tag pm-mvp:part8 .` succeeded.
+  `.dockerignore` excludes `.env`; the Dockerfile only copies backend source
+  and the built frontend, not the local environment file.
+- Adding the SDK changed the Starlette test cookie jar's handling of synthetic
+  sessions; the existing ownership test now updates its cookie with the
+  matching domain and path. The full backend suite passes with that fix.
 
 ## Part 9: Structured AI board operations
 

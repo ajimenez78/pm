@@ -10,6 +10,7 @@ from typing import Annotated, AsyncIterator
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from openai import OpenAI, OpenAIError
 from pydantic import BaseModel, Field, StringConstraints
 
 from app.database import (
@@ -132,6 +133,31 @@ def create_app(
     def get_health() -> dict[str, str]:
         """Return the service health status."""
         return {"status": "ok"}
+
+    @application.post("/api/ai/connectivity")
+    def check_openai_connectivity(request: Request) -> dict[str, str]:
+        """Check server-side connectivity to the configured OpenAI model."""
+        get_authenticated_user_id(request)
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise HTTPException(
+                status_code=503,
+                detail="OpenAI is not configured",
+            )
+
+        try:
+            with OpenAI(api_key=api_key) as client:
+                response = client.responses.create(
+                    model="gpt-6-luna",
+                    input="What is 2+2?",
+                )
+        except OpenAIError as error:
+            raise HTTPException(
+                status_code=502,
+                detail="OpenAI connectivity check failed",
+            ) from error
+
+        return {"answer": response.output_text}
 
     @application.post("/api/auth/login")
     def login(

@@ -19,3 +19,10 @@ the default path is `backend/data/pm.sqlite3`; `DATABASE_PATH` can override it.
 
 The scripts pass the root `.env` into the container when it exists. It is
 optional for the sign-in and board API.
+
+To enable the OpenAI connectivity check, add `OPENAI_API_KEY=your-key` to the
+ignored root `.env` file. Do not commit or publish the key. The start scripts
+pass it to Docker; for direct backend runs, set `OPENAI_API_KEY` in the
+environment before starting FastAPI. The authenticated endpoint,
+`POST /api/ai/connectivity`, uses the server-side key and returns the model's
+answer to `What is 2+2?`.

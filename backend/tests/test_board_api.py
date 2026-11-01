@@ -324,7 +324,12 @@ def test_board_operations_cannot_access_another_users_cards(
         other_user_id,
         4_102_444_800,
     )
-    signed_in_client.cookies.set("pm_session", second_user_session_id)
+    signed_in_client.cookies.set(
+        "pm_session",
+        second_user_session_id,
+        domain="testserver.local",
+        path="/",
+    )
     other_user_board = signed_in_client.get("/api/board")
     assert other_user_board.status_code == 200
     assert other_user_board.json()["title"] == "Other"
@@ -333,7 +338,12 @@ def test_board_operations_cannot_access_another_users_cards(
         json={"title": "Tampered", "details": ""},
     )
     assert other_user_cannot_edit_first_user_card.status_code == 404
-    signed_in_client.cookies.set("pm_session", own_session_id)
+    signed_in_client.cookies.set(
+        "pm_session",
+        own_session_id,
+        domain="testserver.local",
+        path="/",
+    )
 
     visible_board = signed_in_client.get(
         f"/api/board?user_id={other_user_id}",

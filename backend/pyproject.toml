@@ -5,6 +5,7 @@ description = "FastAPI backend for the project management MVP"
 requires-python = ">=3.13,<3.15"
 dependencies = [
     "fastapi>=0.115",
+    "openai>=3.42.0",
     "uvicorn[standard]>=0.34",
 ]
 
