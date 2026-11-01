@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "./schema.json",
+  "title": "Project management SQLite data snapshot",
+  "description": "JSON representation of user, board, fixed column, and card records. Cross-record integrity is enforced by SQLite.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "users",
+    "boards",
+    "columns",
+    "cards"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "users": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/user"
+      }
+    },
+    "boards": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/board"
+      }
+    },
+    "columns": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/column"
+      }
+    },
+    "cards": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/card"
+      }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "username",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "username": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "board": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "user_id",
+        "title",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "user_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "board_id",
+        "id",
+        "title",
+        "position",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "board_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "id": {
+          "type": "string",
+          "enum": [
+            "backlog",
+            "up-next",
+            "in-progress",
+            "in-review",
+            "done"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "position": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "board_id",
+        "column_id",
+        "title",
+        "details",
+        "position",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "board_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "column_id": {
+          "type": "string",
+          "enum": [
+            "backlog",
+            "up-next",
+            "in-progress",
+            "in-review",
+            "done"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "details": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "position": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    }
+  }
+}

@@ -141,22 +141,34 @@ Deliver a local project-management web app with a Kanban board, a hardcoded MVP 
 
 ### Checklist
 
-- [ ] Propose a JSON schema artifact under `docs/` for users, a user's single board, its fixed columns, and cards.
-- [ ] Define stable identifiers, ownership relationships, ordering, required fields, and deletion/update relationships.
-- [ ] Document SQLite initialization and the proposed schema in `docs/`, including how one board per user and fixed columns are represented.
-- [ ] Document how conversation history is handled under the assumptions below.
+- [x] Propose a JSON schema artifact under `docs/` for users, a user's single board, its fixed columns, and cards.
+- [x] Define stable identifiers, ownership relationships, ordering, required fields, and deletion/update relationships.
+- [x] Document SQLite initialization and the proposed schema in `docs/`, including how one board per user and fixed columns are represented.
+- [x] Document how conversation history is handled under the assumptions below.
 - [ ] Ask the user to review and approve the schema before implementation.
 
 ### Verification
 
-- Validate the JSON artifact with a JSON parser.
-- Check that the proposal supports multiple user records while enforcing one board per user and supports renamed columns and ordered cards.
-- Review every schema field against the API and AI operations required in later parts.
+- [x] Validate the JSON artifact with a JSON parser.
+- [x] Check that the proposal supports multiple user records while enforcing one board per user and supports renamed columns and ordered cards.
+- [x] Review every schema field against the API and AI operations required in later parts.
 
 ### Success criteria
 
 - The schema artifact and its explanation are complete, consistent, and understandable without inspecting application code.
 - The user explicitly approves the schema; no database implementation starts before that approval.
+
+### Proposal evidence
+
+- [schema.json](./schema.json) describes version 1 user, board, fixed-column,
+  and card records. [data-model.md](./data-model.md) documents SQLite
+  constraints, ownership, initialization/seeding, ordering, deletion, and
+  non-persisted conversation history.
+- The JSON artifact parses successfully. IDs and constraints were checked
+  against the existing board data and the planned Part 6 board and Part 9 AI
+  operations.
+- Approval is pending. No database or application persistence code has been
+  implemented; Part 6 remains gated on explicit user approval.
 
 ## Part 6: Backend board API and SQLite persistence
 
