@@ -40,7 +40,7 @@ $DockerArguments = @(
     'run',
     '--detach',
     '--name', $ContainerName,
-    '--publish', '8000:8000',
+    '--publish', '127.0.0.1:8000:8000',
     '--volume', 'pm-mvp-data:/app/data'
 )
 $EnvironmentFile = Join-Path $RootDirectory '.env'

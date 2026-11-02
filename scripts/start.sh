@@ -28,14 +28,14 @@ fi
 if [ -f "$ROOT_DIR/.env" ]; then
     docker run --detach \
         --name "$CONTAINER_NAME" \
-        --publish 8000:8000 \
+        --publish 127.0.0.1:8000:8000 \
         --volume "$DATA_VOLUME:/app/data" \
         --env-file "$ROOT_DIR/.env" \
         "$IMAGE_NAME"
 else
     docker run --detach \
         --name "$CONTAINER_NAME" \
-        --publish 8000:8000 \
+        --publish 127.0.0.1:8000:8000 \
         --volume "$DATA_VOLUME:/app/data" \
         "$IMAGE_NAME"
 fi

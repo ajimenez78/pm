@@ -47,9 +47,14 @@ export function Card({ card, onDelete, onEdit }: CardProps) {
     }
   }
 
-  function handleCancel() {
+  function startEditing() {
     setTitle(card.title);
     setDetails(card.details);
+    setError("");
+    setIsEditing(true);
+  }
+
+  function handleCancel() {
     setError("");
     setIsEditing(false);
   }
@@ -128,7 +133,7 @@ export function Card({ card, onDelete, onEdit }: CardProps) {
               <button
                 className="icon-button edit-card"
                 aria-label={`Edit card: ${card.title}`}
-                onClick={() => setIsEditing(true)}
+                onClick={startEditing}
                 type="button"
               >
                 <Pencil aria-hidden="true" size={14} />

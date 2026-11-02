@@ -25,6 +25,7 @@ MVP_USERNAME = INITIAL_USERNAME
 MVP_PASSWORD = "password"
 SESSION_COOKIE = "pm_session"
 SESSION_MAX_AGE = 60 * 60 * 12
+OPENAI_MODEL = "gpt-6-luna"
 EXAMPLE_PAGE = """<!doctype html>
 <html lang="en">
   <head>
@@ -162,7 +163,10 @@ AIChatOperation = (
 class AIChatResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    reply: str
+    reply: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=4000),
+    ]
     operations: list[AIChatOperation]
 
 
@@ -224,7 +228,7 @@ def create_app(
         try:
             with OpenAI(api_key=api_key) as client:
                 response = client.responses.create(
-                    model="gpt-6-luna",
+                    model=OPENAI_MODEL,
                     input="What is 2+2?",
                 )
         except OpenAIError as error:
@@ -277,7 +281,7 @@ def create_app(
         try:
             with OpenAI(api_key=api_key) as client:
                 provider_response = client.responses.parse(
-                    model="gpt-6-luna",
+                    model=OPENAI_MODEL,
                     input=model_input,
                     text_format=AIChatResult,
                     store=False,
@@ -287,19 +291,18 @@ def create_app(
                 status_code=502,
                 detail="OpenAI chat request failed",
             ) from error
-
-        if provider_response.output_parsed is None:
-            raise HTTPException(
-                status_code=502,
-                detail="AI returned an invalid response",
-            )
-        try:
-            result = AIChatResult.model_validate(provider_response.output_parsed)
         except ValidationError as error:
             raise HTTPException(
                 status_code=502,
                 detail="AI returned an invalid response",
             ) from error
+
+        result = provider_response.output_parsed
+        if result is None:
+            raise HTTPException(
+                status_code=502,
+                detail="AI returned an invalid response",
+            )
 
         operations = [operation.model_dump() for operation in result.operations]
         try:
@@ -332,12 +335,12 @@ def create_app(
     ) -> dict[str, str]:
         """Create a short-lived session for the hardcoded MVP user."""
         valid_username = secrets.compare_digest(
-            credentials.username,
-            MVP_USERNAME,
+            credentials.username.encode(),
+            MVP_USERNAME.encode(),
         )
         valid_password = secrets.compare_digest(
-            credentials.password,
-            MVP_PASSWORD,
+            credentials.password.encode(),
+            MVP_PASSWORD.encode(),
         )
         if not (valid_username and valid_password):
             raise HTTPException(

@@ -22,7 +22,9 @@ def _mock_openai(
             calls.append(kwargs)
             if isinstance(output, Exception):
                 raise output
-            return SimpleNamespace(output_parsed=output)
+            # Like the SDK, validate the output against the requested format.
+            text_format = kwargs["text_format"]
+            return SimpleNamespace(output_parsed=text_format.model_validate(output))
 
     class FakeOpenAI:
         def __init__(self, *, api_key: str) -> None:
@@ -292,25 +294,25 @@ def test_chat_rejects_invalid_operation_without_partial_mutation(
     assert signed_in_client.get("/api/board").json() == board
 
 
+@pytest.mark.parametrize(
+    "output",
+    [
+        {
+            "reply": "Unsupported operation",
+            "operations": [{"type": "delete_card", "card_id": "card-id"}],
+        },
+        {"reply": "x" * 4001, "operations": []},
+        {"reply": " ", "operations": []},
+    ],
+)
 def test_chat_returns_generic_error_for_malformed_structured_output(
     signed_in_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
+    output: dict[str, object],
 ) -> None:
     board = signed_in_client.get("/api/board").json()
     calls: list[dict[str, object]] = []
-    _mock_openai(
-        monkeypatch,
-        {
-            "reply": "Unsupported operation",
-            "operations": [
-                {
-                    "type": "delete_card",
-                    "card_id": "card-id",
-                },
-            ],
-        },
-        calls,
-    )
+    _mock_openai(monkeypatch, output, calls)
 
     response = signed_in_client.post(
         "/api/ai/chat",

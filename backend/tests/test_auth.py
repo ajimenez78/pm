@@ -24,6 +24,7 @@ def test_valid_credentials_create_a_session(client: TestClient) -> None:
     [
         {"username": "user", "password": "wrong"},
         {"username": "other", "password": "password"},
+        {"username": "usér", "password": "pässword"},
     ],
 )
 def test_invalid_credentials_do_not_create_a_session(

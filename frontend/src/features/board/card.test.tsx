@@ -49,4 +49,38 @@ describe("Card", () => {
 
     expect(onDelete).toHaveBeenCalledWith("card-1");
   });
+
+  it("edits the latest card content after the card changes", async () => {
+    const user = userEvent.setup();
+    const card = {
+      id: "card-1",
+      column_id: "backlog",
+      title: "Plan launch",
+      details: "Brief the team",
+      position: 0,
+    };
+    const { rerender } = render(
+      <DndContext>
+        <Card card={card} onDelete={vi.fn()} onEdit={vi.fn()} />
+      </DndContext>,
+    );
+
+    rerender(
+      <DndContext>
+        <Card
+          card={{ ...card, title: "Plan AI launch", details: "Updated by AI" }}
+          onDelete={vi.fn()}
+          onEdit={vi.fn()}
+        />
+      </DndContext>,
+    );
+    await user.click(screen.getByRole("button", { name: "Edit card: Plan AI launch" }));
+
+    expect(screen.getByRole("textbox", { name: "Card title" })).toHaveValue(
+      "Plan AI launch",
+    );
+    expect(screen.getByRole("textbox", { name: "Details" })).toHaveValue(
+      "Updated by AI",
+    );
+  });
 });
