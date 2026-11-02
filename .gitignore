@@ -175,3 +175,7 @@ cython_debug/
 
 .DS_Store
 
+
+# Local SQLite database
+backend/data/
+docs/code_review.md
