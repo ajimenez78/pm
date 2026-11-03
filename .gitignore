@@ -178,4 +178,4 @@ cython_debug/
 
 # Local SQLite database
 backend/data/
-docs/code_review.md
+docs/*review.md

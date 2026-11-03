@@ -33,3 +33,7 @@ Frontend (run from `frontend/`):
 - AI: `POST /api/ai/chat` sends the system instructions, client-supplied chat history, and the current board JSON to OpenAI (`gpt-6-luna`) via `client.responses.parse` with a structured output model (`AIChatResult`: reply plus create/edit/move card operations). Operations are applied atomically with `database.apply_board_operations`, and the updated board is returned. The AI may not delete cards or rename columns. Chat history is not persisted. `POST /api/ai/connectivity` is a simple key check.
 - Frontend (`frontend/src`): `auth-gate.tsx` checks the session, then renders `workspace.tsx` (board plus chat sidebar). Board logic lives in `features/board/`: `board-api.ts` (fetch wrappers), `use-board.ts` (load/refresh state after mutations), `board.tsx` (columns, rename, `@dnd-kit` drag and drop), `chat-panel.tsx` (AI chat that replaces board state with the returned board). Styling is in `src/app/globals.css`.
 - Next.js is a recent version (16.x) with breaking changes; consult `frontend/node_modules/next/dist/docs/` before writing Next-specific code.
+
+## DETAILED PLAN
+
+@docs/PLAN.md
