@@ -1,357 +1,195 @@
 import { expect, test, type Page } from "@playwright/test";
 
+// These tests run against the real FastAPI backend serving the static export.
+// Each test registers its own account, so tests are isolated from each other
+// and from existing data. Only the OpenAI-backed chat endpoint is stubbed.
+
+const PASSWORD = "e2e-password";
+const SAMPLE_CARDS = [
+  ["backlog", "Review brand direction", "Align the visual identity."],
+  ["backlog", "Plan customer interviews", "Prepare a short guide."],
+  ["up-next", "Write product page copy", ""],
+  ["done", "Finalize launch brief", ""],
+] as const;
+
+type Account = { username: string; password: string };
+const accounts = new WeakMap<Page, Account>();
+
+function uniqueUsername(): string {
+  return `e2e-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function createAccount(page: Page): Promise<Account> {
+  const account = { username: uniqueUsername(), password: PASSWORD };
+  const response = await page.request.post("/api/auth/register", {
+    data: account,
+  });
+  expect(response.status()).toBe(201);
+  accounts.set(page, account);
+  return account;
+}
+
+/** Register a user whose starter board holds the sample cards, then open it. */
+async function openSampleBoard(page: Page): Promise<string> {
+  await createAccount(page);
+  const [starter] = await (await page.request.get("/api/boards")).json();
+  await page.request.patch(`/api/boards/${starter.id}`, {
+    data: { title: "Product launch", description: "" },
+  });
+  for (const [columnId, title, details] of SAMPLE_CARDS) {
+    await page.request.post(`/api/boards/${starter.id}/cards`, {
+      data: { column_id: columnId, title, details },
+    });
+  }
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Product launch" }),
+  ).toBeVisible();
+  return starter.id;
+}
+
+function column(page: Page, name: string) {
+  return page.getByRole("region", { name, exact: true });
+}
+
 async function waitForKeyboardSensor(page: Page) {
   await page.evaluate(
     () => new Promise<void>((resolve) => window.setTimeout(resolve, 0)),
   );
 }
 
-async function installAuthApi(page: Page) {
-  let isSignedIn = false;
-  const initialBoard = {
-    id: "board-1",
-    title: "Product launch",
-    columns: [
-      {
-        id: "backlog",
-        title: "Backlog",
-        position: 0,
-        cards: [
-          {
-            id: "card-brand-audit",
-            column_id: "backlog",
-            title: "Review brand direction",
-            details: "Align the visual identity with the new product story.",
-            position: 0,
-          },
-          {
-            id: "card-customer-interviews",
-            column_id: "backlog",
-            title: "Plan customer interviews",
-            details: "Prepare a short guide for five early-access customers.",
-            position: 1,
-          },
-        ],
-      },
-      {
-        id: "up-next",
-        title: "Up next",
-        position: 1,
-        cards: [
-          {
-            id: "card-product-copy",
-            column_id: "up-next",
-            title: "Write product page copy",
-            details: "Keep the first fold clear, confident, and concise.",
-            position: 0,
-          },
-        ],
-      },
-      {
-        id: "in-progress",
-        title: "In progress",
-        position: 2,
-        cards: [
-          {
-            id: "card-onboarding",
-            column_id: "in-progress",
-            title: "Design onboarding flow",
-            details: "Map the first three minutes of the product experience.",
-            position: 0,
-          },
-          {
-            id: "card-dashboard",
-            column_id: "in-progress",
-            title: "Build analytics dashboard",
-            details: "Bring the key launch metrics together in one view.",
-            position: 1,
-          },
-        ],
-      },
-      {
-        id: "in-review",
-        title: "In review",
-        position: 3,
-        cards: [
-          {
-            id: "card-email-sequence",
-            column_id: "in-review",
-            title: "Review welcome emails",
-            details: "Check tone and links before the first send.",
-            position: 0,
-          },
-        ],
-      },
-      {
-        id: "done",
-        title: "Done",
-        position: 4,
-        cards: [
-          {
-            id: "card-launch-brief",
-            column_id: "done",
-            title: "Finalize launch brief",
-            details: "Share the goals, timeline, and owners with the team.",
-            position: 0,
-          },
-        ],
-      },
-    ],
-  };
-  const board = structuredClone(initialBoard);
-
-  await page.route("**/api/auth/session", (route) =>
-    route.fulfill({
-      status: isSignedIn ? 200 : 401,
-      contentType: "application/json",
-      body: JSON.stringify(
-        isSignedIn ? { username: "user" } : { detail: "Not authenticated" },
-      ),
-    }),
-  );
-  await page.route("**/api/auth/login", async (route) => {
-    isSignedIn = true;
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ username: "user" }),
+test.afterEach(async ({ page }) => {
+  const account = accounts.get(page);
+  if (account) {
+    // Sign in again in case the test signed out, then remove the account.
+    await page.request.post("/api/auth/login", { data: account });
+    await page.request.post("/api/auth/delete-account", {
+      data: { password: account.password },
     });
-  });
-  await page.route("**/api/auth/logout", async (route) => {
-    isSignedIn = false;
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ status: "ok" }),
-    });
-  });
-  await page.route("**/api/board", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(board),
-    }),
-  );
-  await page.route("**/api/board/**", async (route) => {
-    const request = route.request();
-    const path = new URL(request.url()).pathname.split("/").filter(Boolean);
-    const method = request.method();
-    const payload = (request.postDataJSON() ?? {}) as Record<string, unknown>;
-
-    if (path[2] === "columns" && method === "PATCH") {
-      const column = board.columns.find((item) => item.id === path[3]);
-      if (column && typeof payload.title === "string") {
-        column.title = payload.title;
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify(column),
-        });
-        return;
-      }
-    }
-
-    if (path[2] === "cards" && path.length === 3 && method === "POST") {
-      const column = board.columns.find(
-        (item) => item.id === payload.column_id,
-      );
-      if (column && typeof payload.title === "string") {
-        const card = {
-          id: `e2e-${Date.now()}`,
-          column_id: column.id,
-          title: payload.title,
-          details: typeof payload.details === "string" ? payload.details : "",
-          position: column.cards.length,
-        };
-        column.cards.push(card);
-        await route.fulfill({
-          status: 201,
-          contentType: "application/json",
-          body: JSON.stringify(card),
-        });
-        return;
-      }
-    }
-
-    if (path[2] === "cards" && path.length === 4 && method === "PATCH") {
-      const card = board.columns
-        .flatMap((column) => column.cards)
-        .find((item) => item.id === path[3]);
-      if (
-        card &&
-        typeof payload.title === "string" &&
-        typeof payload.details === "string"
-      ) {
-        card.title = payload.title;
-        card.details = payload.details;
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify(card),
-        });
-        return;
-      }
-    }
-
-    if (
-      path[2] === "cards" &&
-      path[4] === "move" &&
-      method === "PATCH" &&
-      typeof payload.column_id === "string" &&
-      typeof payload.position === "number"
-    ) {
-      const source = board.columns.find((column) =>
-        column.cards.some((card) => card.id === path[3]),
-      );
-      const destination = board.columns.find(
-        (column) => column.id === payload.column_id,
-      );
-      const card = source?.cards.find((item) => item.id === path[3]);
-      if (source && destination && card) {
-        source.cards = source.cards.filter((item) => item.id !== card.id);
-        card.column_id = destination.id;
-        destination.cards.splice(payload.position, 0, card);
-        for (const column of board.columns) {
-          column.cards.forEach((item, position) => {
-            item.position = position;
-          });
-        }
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify(card),
-        });
-        return;
-      }
-    }
-
-    if (path[2] === "cards" && path.length === 4 && method === "DELETE") {
-      for (const column of board.columns) {
-        const cardIndex = column.cards.findIndex(
-          (item) => item.id === path[3],
-        );
-        if (cardIndex !== -1) {
-          column.cards.splice(cardIndex, 1);
-          column.cards.forEach((item, position) => {
-            item.position = position;
-          });
-          await route.fulfill({ status: 204 });
-          return;
-        }
-      }
-    }
-
-    await route.fulfill({
-      status: 404,
-      contentType: "application/json",
-      body: JSON.stringify({ detail: "Board resource not found." }),
-    });
-  });
-  return board;
-}
-
-async function openBoard(page: Page, useRealApi = false) {
-  if (!useRealApi) {
-    await installAuthApi(page);
   }
-  await page.goto("/");
-  await page.getByLabel("Username").fill("user");
-  await page.getByLabel("Password").fill("password");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(
-    page.getByRole("region", { name: "Project board" }),
-  ).toBeVisible();
-}
+});
 
 test("keeps a direct board visit behind the sign-in screen", async ({ page }) => {
-  await installAuthApi(page);
   await page.goto("/#board");
 
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
-  await expect(
-    page.getByRole("region", { name: "Project board" }),
-  ).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Project board" })).toHaveCount(0);
 });
 
-test("signs in, shows the board, and returns to sign in after logout", async ({
-  page,
-}) => {
-  await installAuthApi(page);
+test("creates an account, signs out, and signs back in", async ({ page }) => {
+  const account = { username: uniqueUsername(), password: PASSWORD };
   await page.goto("/");
-  await page.getByLabel("Username").fill("user");
-  await page.getByLabel("Password").fill("password");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(
-    page.getByRole("region", { name: "Project board" }),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "Create an account" }).click();
+  await page.getByLabel("Username").fill(account.username);
+  await page.getByLabel("Password").fill(account.password);
+  await page.getByRole("button", { name: "Create account" }).click();
+  accounts.set(page, account);
+
+  await expect(page.getByRole("heading", { name: "My first board" })).toBeVisible();
+  await expect(page.getByLabel("Breadcrumb")).toContainText(account.username);
 
   await page.getByRole("button", { name: "Sign out" }).click();
-
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
-  await expect(
-    page.getByRole("region", { name: "Project board" }),
-  ).toHaveCount(0);
+
+  await page.getByLabel("Username").fill(account.username);
+  await page.getByLabel("Password").fill("wrong-password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByText("Invalid username or password.")).toBeVisible();
+
+  await page.getByLabel("Password").fill(account.password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("heading", { name: "My first board" })).toBeVisible();
 });
 
-test("opens one populated board with five columns", async ({ page }) => {
-  await openBoard(page);
+test("opens a populated board with five columns", async ({ page }) => {
+  await openSampleBoard(page);
 
   const board = page.getByRole("region", { name: "Project board" });
   await expect(board.getByRole("region")).toHaveCount(5);
   await expect(board.getByText("Review brand direction")).toBeVisible();
 });
 
+test("manages several boards and keeps their cards separate", async ({ page }) => {
+  await openSampleBoard(page);
+
+  await page.getByRole("button", { name: "New board" }).click();
+  await page.getByLabel("New board title").fill("Website redesign");
+  await page.getByLabel("Description").fill("Marketing site refresh");
+  await page.getByRole("button", { name: "Create board" }).click();
+
+  await expect(page.getByRole("heading", { name: "Website redesign" })).toBeVisible();
+  await expect(page.getByText("Marketing site refresh")).toBeVisible();
+  await expect(page.getByText("Review brand direction")).toHaveCount(0);
+  await page.getByRole("button", { name: "Add card to Backlog" }).click();
+  await page.getByRole("textbox", { name: "Card title" }).fill("Audit pages");
+  await page.getByRole("button", { name: "Add card", exact: true }).click();
+  await expect(column(page, "Backlog").getByText("Audit pages")).toBeVisible();
+
+  const switcher = page.getByRole("combobox", { name: "Current board" });
+  await expect(switcher).toContainText("Website redesign (1)");
+  await switcher.selectOption({ label: "Product launch (4)" });
+  await expect(page.getByRole("heading", { name: "Product launch" })).toBeVisible();
+  await expect(page.getByText("Audit pages")).toHaveCount(0);
+
+  // The selected board is remembered across reloads.
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Product launch" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Edit board details" }).click();
+  await page.getByLabel("Board title").fill("Launch plan");
+  await page.getByRole("button", { name: "Save board" }).click();
+  await expect(page.getByRole("heading", { name: "Launch plan" })).toBeVisible();
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Delete board" }).click();
+  await expect(page.getByRole("heading", { name: "Website redesign" })).toBeVisible();
+  await expect(switcher.locator("option")).toHaveCount(1);
+});
+
+test("does not expose another user's board", async ({ page, browser }) => {
+  const boardId = await openSampleBoard(page);
+  const otherContext = await browser.newContext();
+  const other = await otherContext.newPage();
+  await createAccount(other);
+
+  const response = await other.request.get(`/api/boards/${boardId}`);
+  expect(response.status()).toBe(404);
+  await other.goto("/");
+  await expect(other.getByRole("heading", { name: "My first board" })).toBeVisible();
+  await expect(other.getByText("Review brand direction")).toHaveCount(0);
+
+  const account = accounts.get(other)!;
+  await other.request.post("/api/auth/delete-account", {
+    data: { password: account.password },
+  });
+  await otherContext.close();
+});
+
 test("chats with the assistant and immediately shows its board changes", async ({
   page,
 }) => {
-  const useRealApi = Boolean(process.env.PLAYWRIGHT_BASE_URL);
-  const board = useRealApi ? null : await installAuthApi(page);
-  let submittedQuestion = "";
-  await page.route("**/api/ai/chat", async (route) => {
-    const requestBody = route.request().postDataJSON() as {
-      question: string;
-      history: { role: string; content: string }[];
-    };
-    submittedQuestion = requestBody.question;
-    expect(requestBody.history).toEqual([]);
-    const apiBoard = board ?? (await (
-      await page.request.get(`${new URL(page.url()).origin}/api/board`)
-    ).json()) as {
-      columns: {
-        id: string;
-        cards: {
-          id: string;
-          column_id: string;
-          title: string;
-          details: string;
-          position: number;
-        }[];
-      }[];
-    };
-    const upNext = apiBoard.columns.find(
-      (column) => column.id === "up-next",
-    );
-    if (!upNext) {
-      throw new Error("The Up next column should exist.");
-    }
-    upNext.cards.push({
-      id: "card-ai-created",
-      column_id: "up-next",
-      title: "Prepare launch checklist",
-      details: "Check launch readiness.",
-      position: upNext.cards.length,
+  const boardId = await openSampleBoard(page);
+  let submitted: { question: string; history: unknown[] } | null = null;
+  // Stand in for the model: perform the change through the real API and
+  // return the persisted board, as the backend would.
+  await page.route("**/api/boards/*/ai/chat", async (route) => {
+    submitted = route.request().postDataJSON();
+    await page.request.post(`/api/boards/${boardId}/cards`, {
+      data: {
+        column_id: "up-next",
+        title: "Prepare launch checklist",
+        priority: "high",
+      },
     });
+    const board = await (await page.request.get(`/api/boards/${boardId}`)).json();
     await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
+      json: {
         reply: "I added the launch checklist to Up next.",
         changed: true,
-        board: apiBoard,
-      }),
+        board,
+      },
     });
   });
-  await openBoard(page, useRealApi);
 
   await page.getByRole("button", { name: "Open AI assistant" }).click();
   await page
@@ -359,83 +197,87 @@ test("chats with the assistant and immediately shows its board changes", async (
     .fill("Add a launch checklist");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await expect(page.getByText("Prepare launch checklist")).toBeVisible();
+  const upNext = column(page, "Up next");
+  await expect(upNext.getByText("Prepare launch checklist")).toBeVisible();
+  await expect(upNext.getByText("High")).toBeVisible();
+  await expect(page.getByText("I added the launch checklist to Up next.")).toBeVisible();
+  expect(submitted).toEqual({ question: "Add a launch checklist", history: [] });
   await expect(
-    page.getByText("I added the launch checklist to Up next."),
-  ).toBeVisible();
-  expect(submittedQuestion).toBe("Add a launch checklist");
+    page.getByRole("combobox", { name: "Current board" }),
+  ).toContainText("Product launch (5)");
+
+  await page.reload();
+  await expect(column(page, "Up next").getByText("Prepare launch checklist")).toBeVisible();
 });
 
-test("keeps the chat keyboard accessible on a narrow screen", async ({
-  page,
-}) => {
+test("keeps the chat keyboard accessible on a narrow screen", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await openBoard(page);
+  await openSampleBoard(page);
 
-  const assistantButton = page.getByRole("button", {
-    name: "Open AI assistant",
-  });
+  const assistantButton = page.getByRole("button", { name: "Open AI assistant" });
   await assistantButton.click();
 
-  const composer = page.getByRole("textbox", {
-    name: "Message the AI assistant",
-  });
+  const composer = page.getByRole("textbox", { name: "Message the AI assistant" });
   await expect(composer).toBeVisible();
   await expect(composer).toBeFocused();
   await composer.press("Escape");
 
-  await expect(
-    page.getByRole("complementary", { name: "AI assistant" }),
-  ).toHaveCount(0);
+  await expect(page.getByRole("complementary", { name: "AI assistant" })).toHaveCount(0);
   await expect(assistantButton).toBeFocused();
 });
 
-test("renames a column and adds then deletes a card", async ({ page }) => {
-  await openBoard(page);
+test("renames a column and adds, edits, and deletes a card with metadata", async ({
+  page,
+}) => {
+  await openSampleBoard(page);
 
   await page.getByRole("button", { name: "Rename Backlog column" }).click();
   const columnName = page.getByRole("textbox", { name: "Column name" });
   await columnName.fill("Ideas");
   await columnName.press("Enter");
-  await expect(
-    page.getByRole("region", { name: "Ideas", exact: true }),
-  ).toBeVisible();
+  const ideas = column(page, "Ideas");
+  await expect(ideas).toBeVisible();
 
   await page.getByRole("button", { name: "Add card to Ideas" }).click();
   await page.getByRole("textbox", { name: "Card title" }).fill("Research");
   await page.getByRole("textbox", { name: "Details" }).fill("Review the market");
+  await ideas.getByLabel("Priority").selectOption("medium");
+  await ideas.getByLabel("Due date").fill("2020-01-15");
   await page.getByRole("button", { name: "Add card", exact: true }).click();
-  await expect(page.getByText("Research")).toBeVisible();
+  await expect(ideas.getByText("Research")).toBeVisible();
+  await expect(ideas.getByText("Medium")).toBeVisible();
+  await expect(ideas.getByText("Overdue Jan 15, 2020")).toBeVisible();
 
-  await page.getByRole("button", { name: "Delete card: Research" }).click();
-  await expect(page.getByText("Research")).toHaveCount(0);
+  await page.getByRole("button", { name: "Edit card: Research" }).click();
+  await page.getByRole("textbox", { name: "Card title" }).fill("Market research");
+  await ideas.getByLabel("Priority").selectOption("high");
+  await ideas.getByLabel("Due date").fill("");
+  await page.getByRole("button", { name: "Save card" }).click();
+  await expect(ideas.getByRole("heading", { name: "Market research" })).toBeVisible();
+  await expect(ideas.getByText("High")).toBeVisible();
+  await expect(ideas.getByText(/Overdue/)).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Delete card: Market research" }).click();
+  await expect(page.getByText("Market research")).toHaveCount(0);
 });
 
-test("edits a card title and details", async ({ page }) => {
-  await openBoard(page);
+test("filters cards by search text and priority", async ({ page }) => {
+  await openSampleBoard(page);
 
-  await page
-    .getByRole("button", { name: "Edit card: Review brand direction" })
-    .click();
-  await page
-    .getByRole("textbox", { name: "Card title" })
-    .fill("Review product direction");
-  await page
-    .getByRole("textbox", { name: "Details" })
-    .fill("Align on the product story.");
-  await page.getByRole("button", { name: "Save card" }).click();
+  await page.getByRole("searchbox", { name: "Search cards" }).fill("brand");
+  await expect(page.getByText("Showing 1 of 4 cards")).toBeVisible();
+  await expect(page.getByText("Plan customer interviews")).toHaveCount(0);
 
-  await expect(
-    page.getByRole("heading", { name: "Review product direction" }),
-  ).toBeVisible();
-  await expect(page.getByText("Align on the product story.")).toBeVisible();
+  await page.getByRole("searchbox", { name: "Search cards" }).fill("");
+  await page.getByRole("combobox", { name: "Filter by priority" }).selectOption("high");
+  await expect(page.getByText("Showing 0 of 4 cards")).toBeVisible();
 });
 
 test("moves a card between columns with drag and drop", async ({ page }) => {
-  await openBoard(page);
+  await openSampleBoard(page);
 
-  const backlog = page.getByRole("region", { name: "Backlog" });
-  const upNext = page.getByRole("region", { name: "Up next" });
+  const backlog = column(page, "Backlog");
+  const upNext = column(page, "Up next");
   const cardTitle = "Review brand direction";
   await backlog
     .getByRole("button", { name: `Move card: ${cardTitle}` })
@@ -443,41 +285,38 @@ test("moves a card between columns with drag and drop", async ({ page }) => {
 
   await expect(upNext.getByText(cardTitle)).toBeVisible();
   await expect(backlog.getByText(cardTitle)).toHaveCount(0);
+
+  await page.reload();
+  await expect(column(page, "Up next").getByText(cardTitle)).toBeVisible();
 });
 
 test("reorders cards within a column with drag and drop", async ({ page }) => {
-  await openBoard(page);
+  await openSampleBoard(page);
 
-  const backlog = page.getByRole("region", { name: "Backlog", exact: true });
-  const firstCard = backlog.getByRole("button", {
-    name: "Move card: Review brand direction",
-  });
-  const secondCard = backlog.getByRole("button", {
-    name: "Move card: Plan customer interviews",
-  });
-  await firstCard.dragTo(secondCard, { steps: 10 });
+  const backlog = column(page, "Backlog");
+  await backlog
+    .getByRole("button", { name: "Move card: Review brand direction" })
+    .dragTo(
+      backlog.getByRole("button", { name: "Move card: Plan customer interviews" }),
+      { steps: 10 },
+    );
 
-  await expect(backlog.getByRole("heading", { level: 3 }).first()).toHaveText(
-    "Plan customer interviews",
-  );
-  await expect(backlog.getByRole("heading", { level: 3 }).nth(1)).toHaveText(
-    "Review brand direction",
-  );
+  const headings = backlog.getByRole("heading", { level: 3 });
+  await expect(headings.first()).toHaveText("Plan customer interviews");
+  await expect(headings.nth(1)).toHaveText("Review brand direction");
 });
 
 test("shows the dragged card and a clear destination before dropping", async ({
   page,
 }) => {
-  await openBoard(page);
+  await openSampleBoard(page);
 
-  const backlog = page.getByRole("region", { name: "Backlog", exact: true });
-  const upNext = page.getByRole("region", { name: "Up next", exact: true });
-  const handle = backlog.getByRole("button", {
-    name: "Move card: Review brand direction",
-  });
-  const handleBounds = await handle.boundingBox();
+  const backlog = column(page, "Backlog");
+  const upNext = column(page, "Up next");
+  const handleBounds = await backlog
+    .getByRole("button", { name: "Move card: Review brand direction" })
+    .boundingBox();
   const destinationBounds = await upNext.boundingBox();
-
   if (!handleBounds || !destinationBounds) {
     throw new Error("The card handle and destination column must be visible.");
   }
@@ -488,12 +327,8 @@ test("shows the dragged card and a clear destination before dropping", async ({
   );
   await page.mouse.down();
   await page.mouse.move(handleBounds.x + handleBounds.width / 2 + 12, handleBounds.y + 8);
-
   await expect(
-    page.getByRole("region", {
-      name: "Dragging card: Review brand direction",
-      exact: true,
-    }),
+    page.getByRole("region", { name: "Dragging card: Review brand direction" }),
   ).toBeVisible();
 
   await page.mouse.move(
@@ -501,7 +336,6 @@ test("shows the dragged card and a clear destination before dropping", async ({
     destinationBounds.y + destinationBounds.height - 18,
     { steps: 8 },
   );
-
   await expect(upNext.getByText("Drop here")).toBeVisible();
   await expect(upNext).toHaveClass(/kanban-column-drop-target/);
 
@@ -510,42 +344,31 @@ test("shows the dragged card and a clear destination before dropping", async ({
 });
 
 test("cancels a keyboard drag without moving the card", async ({ page }) => {
-  await openBoard(page);
+  await openSampleBoard(page);
 
-  const backlog = page.getByRole("region", { name: "Backlog", exact: true });
+  const backlog = column(page, "Backlog");
   const cardTitle = "Review brand direction";
-  const handle = backlog.getByRole("button", { name: `Move card: ${cardTitle}` });
-
-  await handle.focus();
+  await backlog.getByRole("button", { name: `Move card: ${cardTitle}` }).focus();
   await page.keyboard.press("Space");
-  await expect(
-    page.getByRole("region", {
-      name: `Dragging card: ${cardTitle}`,
-      exact: true,
-    }),
-  ).toBeVisible();
+  const preview = page.getByRole("region", { name: `Dragging card: ${cardTitle}` });
+  await expect(preview).toBeVisible();
   await waitForKeyboardSensor(page);
   await page.keyboard.press("Escape");
 
   await expect(backlog.getByText(cardTitle)).toBeVisible();
-  await expect(
-    page.getByRole("region", {
-      name: `Dragging card: ${cardTitle}`,
-      exact: true,
-    }),
-  ).toHaveCount(0);
+  await expect(preview).toHaveCount(0);
 });
 
 test("dropping outside the board leaves the card where it started", async ({
   page,
 }) => {
-  await openBoard(page);
+  await openSampleBoard(page);
 
-  const backlog = page.getByRole("region", { name: "Backlog", exact: true });
+  const backlog = column(page, "Backlog");
   const cardTitle = "Review brand direction";
-  const handle = backlog.getByRole("button", { name: `Move card: ${cardTitle}` });
-  const handleBounds = await handle.boundingBox();
-
+  const handleBounds = await backlog
+    .getByRole("button", { name: `Move card: ${cardTitle}` })
+    .boundingBox();
   if (!handleBounds) {
     throw new Error("The card handle must be visible.");
   }
@@ -556,128 +379,90 @@ test("dropping outside the board leaves the card where it started", async ({
   );
   await page.mouse.down();
   await page.mouse.move(handleBounds.x + handleBounds.width / 2 + 12, handleBounds.y + 8);
-  await expect(
-    page.getByRole("region", { name: `Dragging card: ${cardTitle}`, exact: true }),
-  ).toBeVisible();
+  const preview = page.getByRole("region", { name: `Dragging card: ${cardTitle}` });
+  await expect(preview).toBeVisible();
   await page.mouse.move(20, 20, { steps: 8 });
   await page.mouse.up();
 
   await expect(backlog.getByText(cardTitle)).toBeVisible();
+  await expect(preview).toHaveCount(0);
+});
+
+test("moves a card between columns with the keyboard", async ({ page }) => {
+  await openSampleBoard(page);
+
+  await page.getByRole("button", { name: "Move card: Review brand direction" }).focus();
+  await page.keyboard.press("Space");
   await expect(
-    page.getByRole("region", { name: `Dragging card: ${cardTitle}`, exact: true }),
-  ).toHaveCount(0);
+    page.getByRole("region", { name: "Dragging card: Review brand direction" }),
+  ).toBeVisible();
+  await waitForKeyboardSensor(page);
+  await page.keyboard.press("ArrowRight");
+  await expect(column(page, "Up next").getByText("Drop here")).toBeVisible();
+  await page.keyboard.press("Space");
+
+  await expect(
+    column(page, "Up next").getByText("Review brand direction"),
+  ).toBeVisible();
 });
 
 test("keeps board changes after reload", async ({ page }) => {
-  await openBoard(page);
+  await openSampleBoard(page);
 
   await page.getByRole("button", { name: "Rename Backlog column" }).click();
   await page.getByRole("textbox", { name: "Column name" }).fill("Ideas");
   await page.getByRole("textbox", { name: "Column name" }).press("Enter");
   await page.getByRole("button", { name: "Add card to Ideas" }).click();
   await page.getByRole("textbox", { name: "Card title" }).fill("Saved research");
+  await column(page, "Ideas").getByLabel("Priority").selectOption("low");
   await page.getByRole("button", { name: "Add card", exact: true }).click();
-  await page.reload();
-
-  await expect(
-    page.getByRole("region", { name: "Ideas", exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("region", { name: "Ideas", exact: true }).getByText("Saved research"),
-  ).toBeVisible();
-});
-
-test("persists board edits through the deployed API after reload", async ({
-  page,
-}) => {
-  test.skip(!process.env.PLAYWRIGHT_BASE_URL, "Requires the Docker-served API.");
-  await openBoard(page, true);
-
-  await page.getByRole("button", { name: "Rename Backlog column" }).click();
-  await page.getByRole("textbox", { name: "Column name" }).fill("Ideas for persistence");
-  await page.getByRole("textbox", { name: "Column name" }).press("Enter");
-  await page.getByRole("button", { name: "Add card to Ideas for persistence" }).click();
-  await page.getByRole("textbox", { name: "Card title" }).fill("Part 7 persistence card");
-  await page.getByRole("textbox", { name: "Details" }).fill("Created in the browser.");
-  await page.getByRole("button", { name: "Add card", exact: true }).click();
-  await page.getByRole("button", { name: "Edit card: Part 7 persistence card" }).click();
-  await page.getByRole("textbox", { name: "Card title" }).fill("Persisted API card");
-  await page.getByRole("textbox", { name: "Details" }).fill("Saved across reload.");
-  await page.getByRole("button", { name: "Save card" }).click();
-
-  const ideas = page.getByRole("region", {
-    name: "Ideas for persistence",
-    exact: true,
-  });
-  const inProgress = page.getByRole("region", {
-    name: "In progress",
-    exact: true,
-  });
-  await ideas
-    .getByRole("button", { name: "Move card: Persisted API card" })
-    .dragTo(inProgress, { steps: 10 });
-  await expect(inProgress.getByText("Persisted API card")).toBeVisible();
+  await expect(column(page, "Ideas").getByText("Saved research")).toBeVisible();
 
   await page.reload();
 
-  const persistedColumn = page.getByRole("region", {
-    name: "In progress",
-    exact: true,
-  });
-  await expect(
-    page.getByRole("region", {
-      name: "Ideas for persistence",
-      exact: true,
-    }),
-  ).toBeVisible();
-  await expect(persistedColumn.getByText("Persisted API card")).toBeVisible();
-  await expect(persistedColumn.getByText("Saved across reload.")).toBeVisible();
-
-  await persistedColumn
-    .getByRole("button", { name: "Delete card: Persisted API card" })
-    .click();
-  await page.getByRole("button", {
-    name: "Rename Ideas for persistence column",
-  }).click();
-  await page.getByRole("textbox", { name: "Column name" }).fill("Backlog");
-  await page.getByRole("textbox", { name: "Column name" }).press("Enter");
+  const ideas = column(page, "Ideas");
+  await expect(ideas.getByText("Saved research")).toBeVisible();
+  await expect(ideas.getByText("Low")).toBeVisible();
 });
 
-test("moves a card between columns with the keyboard", async ({ page }) => {
-  await openBoard(page);
+test("changes the password and deletes the account", async ({ page }) => {
+  const account = await createAccount(page);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "My first board" })).toBeVisible();
 
-  const handle = page.getByRole("button", {
-    name: "Move card: Review brand direction",
-  });
-  await handle.focus();
-  await page.keyboard.press("Space");
-  await expect(
-    page.getByRole("region", {
-      name: "Dragging card: Review brand direction",
-      exact: true,
-    }),
-  ).toBeVisible();
-  await waitForKeyboardSensor(page);
-  await page.keyboard.press("ArrowRight");
-  await expect(
-    page.getByRole("region", { name: "Up next", exact: true }).getByText("Drop here"),
-  ).toBeVisible();
-  await page.keyboard.press("Space");
+  await page.getByRole("button", { name: "Account settings" }).click();
+  await page.getByLabel("Current password").fill(account.password);
+  await page.getByLabel("New password", { exact: true }).fill("changed-password");
+  await page.getByLabel("Confirm new password").fill("changed-password");
+  await page.getByRole("button", { name: "Update password" }).click();
+  await expect(page.getByText("Password updated.")).toBeVisible();
+  account.password = "changed-password";
 
-  await expect(
-    page
-      .getByRole("region", { name: "Up next", exact: true })
-      .getByText("Review brand direction"),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.getByLabel("Username").fill(account.username);
+  await page.getByLabel("Password").fill("changed-password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("heading", { name: "My first board" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Account settings" }).click();
+  await page.getByLabel("Confirm with your password").fill("changed-password");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Delete account" }).click();
+
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  const login = await page.request.post("/api/auth/login", { data: account });
+  expect(login.status()).toBe(401);
+  accounts.delete(page);
 });
 
 test("keeps all five columns usable in a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await openBoard(page);
+  await openSampleBoard(page);
 
   const board = page.getByRole("region", { name: "Project board" });
   await expect(board.getByRole("region")).toHaveCount(5);
-  await expect(board.getByRole("region", { name: "Backlog", exact: true })).toBeVisible();
+  await expect(column(page, "Backlog")).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Current board" })).toBeVisible();
 
   const pageOverflows = await page.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,

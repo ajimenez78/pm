@@ -9,16 +9,18 @@ The start script builds the frontend as a static Next.js export, packages it
 with FastAPI, and serves the app at <http://localhost:8000/>. The API health
 endpoint can be called directly with `curl http://localhost:8000/api/health`.
 
-Sign in with username `user` and password `password`. This is a local MVP-only
-login, not production authentication. Sessions are held in backend memory for
-up to 12 hours and are invalidated when the backend restarts.
+Sign in with the seeded account `user` / `password`, or create a new account
+from the sign-in screen. Passwords are stored as scrypt hashes. Sessions are
+held in backend memory for up to 12 hours and are invalidated when the backend
+restarts.
 
 The SQLite database is stored in the persistent Docker volume `pm-mvp-data`
-and initialized with the sample board on first start. For local backend runs,
+and initialized with the sample board on first start. Older databases are
+migrated automatically; see [data-model.md](./data-model.md). For local backend runs,
 the default path is `backend/data/pm.sqlite3`; `DATABASE_PATH` can override it.
 
 The scripts pass the root `.env` into the container when it exists. It is
-optional for the sign-in and board API.
+optional for accounts and boards; the AI chat needs `OPENAI_API_KEY`.
 
 To enable the OpenAI connectivity check, add `OPENAI_API_KEY=your-key` to the
 ignored root `.env` file. Do not commit or publish the key. The start scripts

@@ -1305,6 +1305,249 @@ a {
   background: var(--accent-yellow);
 }
 
+/* Navigation, board switching, and board management */
+
+button.nav-link {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nav-count {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--blue-primary);
+  background: #e8f4fb;
+  font-size: 10px;
+}
+
+.board-switcher select,
+.board-filter select,
+.card-meta-fields select {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid #e1e7ee;
+  border-radius: 7px;
+  color: var(--dark-navy);
+  background: #fff;
+  font: inherit;
+  font-size: 11px;
+}
+
+.board-switcher select {
+  max-width: 220px;
+  font-weight: 650;
+}
+
+.mobile-nav-button {
+  display: none;
+}
+
+.board-title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.board-details-form {
+  display: grid;
+  max-width: 460px;
+  gap: 6px;
+}
+
+.board-details-form label,
+.card-meta-fields label,
+.account-form label {
+  color: #68778a;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.board-details-form input,
+.board-details-form textarea,
+.account-form input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #e3e8ee;
+  border-radius: 6px;
+  color: var(--dark-navy);
+  background: #fff;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.new-board-panel {
+  margin-bottom: 18px;
+}
+
+.board-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.board-search {
+  display: inline-flex;
+  min-height: 32px;
+  flex: 0 1 260px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid #e1e7ee;
+  border-radius: 7px;
+  color: var(--gray-text);
+  background: #fff;
+}
+
+.board-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  color: var(--dark-navy);
+  background: transparent;
+  font-size: 11px;
+}
+
+.board-filter-status {
+  margin: 0;
+  color: var(--gray-text);
+  font-size: 11px;
+}
+
+/* Card metadata */
+
+.card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.priority-badge,
+.due-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.priority-low {
+  color: #2f7a55;
+  background: #e8f6ee;
+}
+
+.priority-medium {
+  color: #8a6106;
+  background: #fdf3d9;
+}
+
+.priority-high {
+  color: #a23b3b;
+  background: #fbe9e9;
+}
+
+.due-upcoming {
+  color: #1c6f98;
+  background: #e8f4fb;
+}
+
+.due-today {
+  color: var(--purple-secondary);
+  background: #f2eaf6;
+}
+
+.due-overdue {
+  color: #fff;
+  background: #c24b4b;
+}
+
+.card-meta-fields {
+  display: grid;
+  gap: 6px;
+}
+
+.card-meta-fields label {
+  display: grid;
+  gap: 3px;
+}
+
+.card-meta-fields select,
+.card-meta-fields input {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 6px;
+  border: 1px solid #e3e8ee;
+  border-radius: 6px;
+  color: var(--dark-navy);
+  background: #fff;
+  font-size: 11px;
+}
+
+/* Account */
+
+.account-panel h2 {
+  margin: 0 0 4px;
+}
+
+.account-form {
+  display: grid;
+  max-width: 420px;
+  gap: 6px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.account-form h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.account-form p {
+  margin: 0;
+  color: #5e6b7d;
+  font-size: 12px;
+}
+
+.account-form .button {
+  justify-self: start;
+  margin-top: 6px;
+}
+
+.button-danger {
+  color: #fff;
+  background: #b44949;
+}
+
+.button-danger:hover {
+  background: #983c3c;
+}
+
+.auth-switch {
+  padding: 0;
+  border: 0;
+  color: var(--blue-primary);
+  background: none;
+  font-size: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.auth-hint {
+  margin: 0;
+  color: var(--gray-text);
+  font-size: 10px;
+}
+
 @media (min-width: 1101px) {
   .board-body-chat-open {
     grid-template-columns: minmax(0, 1fr) 340px;
@@ -1355,6 +1598,10 @@ a {
     width: calc(100% - 60px);
     margin-left: 0;
   }
+
+  .mobile-nav-button {
+    display: inline-flex;
+  }
 }
 
 @media (max-width: 1100px) {
@@ -1377,6 +1624,15 @@ a {
 
   .topbar-caption {
     display: none;
+  }
+
+  .topbar-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .board-switcher select {
+    max-width: 150px;
   }
 
   .page-content {

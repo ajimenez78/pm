@@ -1,145 +1,115 @@
+import {
+  jsonRequest,
+  requestJson,
+  requestNoContent,
+} from "@/lib/api";
 import type {
   AIChatResponse,
   BoardCard,
   BoardColumn,
   BoardData,
+  BoardSummary,
+  CardFields,
   ChatMessage,
 } from "./board-data";
 
-function getErrorDetail(body: unknown): string | null {
-  if (
-    typeof body === "object" &&
-    body !== null &&
-    "detail" in body &&
-    typeof body.detail === "string"
-  ) {
-    return body.detail;
-  }
-
-  return null;
+function boardPath(boardId: string): string {
+  return `/api/boards/${encodeURIComponent(boardId)}`;
 }
 
-async function request(path: string, init?: RequestInit): Promise<Response> {
-  try {
-    return await fetch(path, init);
-  } catch (error) {
-    if (error instanceof TypeError) {
-      throw new Error(
-        "Unable to reach the server. Check your connection and try again.",
-      );
-    }
-
-    throw error;
-  }
+function cardPath(boardId: string, cardId: string): string {
+  return `${boardPath(boardId)}/cards/${encodeURIComponent(cardId)}`;
 }
 
-async function throwResponseError(response: Response): Promise<never> {
-  if (response.status === 401) {
-    throw new Error("Your session has expired. Please sign in again.");
-  }
-
-  const bodyText = await response.text();
-  if (bodyText) {
-    try {
-      const body: unknown = JSON.parse(bodyText);
-      const detail = getErrorDetail(body);
-      if (detail) {
-        throw new Error(detail);
-      }
-    } catch (error) {
-      if (!(error instanceof SyntaxError)) {
-        throw error;
-      }
-    }
-  }
-
-  throw new Error("The board request failed. Please try again.");
+export function listBoards(): Promise<BoardSummary[]> {
+  return requestJson<BoardSummary[]>("/api/boards", { cache: "no-store" });
 }
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await request(path, init);
-  if (!response.ok) {
-    await throwResponseError(response);
-  }
-
-  return response.json() as Promise<T>;
+export function createBoard(
+  title: string,
+  description: string,
+): Promise<BoardData> {
+  return requestJson<BoardData>(
+    "/api/boards",
+    jsonRequest("POST", { title, description }),
+  );
 }
 
-async function requestNoContent(path: string, init: RequestInit): Promise<void> {
-  const response = await request(path, init);
-  if (!response.ok) {
-    await throwResponseError(response);
-  }
+export function updateBoard(
+  boardId: string,
+  title: string,
+  description: string,
+): Promise<BoardData> {
+  return requestJson<BoardData>(
+    boardPath(boardId),
+    jsonRequest("PATCH", { title, description }),
+  );
 }
 
-function jsonRequest(method: "PATCH" | "POST", body: object): RequestInit {
-  return {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  };
+export function deleteBoard(boardId: string): Promise<void> {
+  return requestNoContent(boardPath(boardId), { method: "DELETE" });
 }
 
-export function getBoard(): Promise<BoardData> {
-  return requestJson<BoardData>("/api/board", { cache: "no-store" });
+export function getBoard(boardId: string): Promise<BoardData> {
+  return requestJson<BoardData>(boardPath(boardId), { cache: "no-store" });
 }
 
 export function sendChatMessage(
+  boardId: string,
   question: string,
   history: ChatMessage[],
 ): Promise<AIChatResponse> {
   return requestJson<AIChatResponse>(
-    "/api/ai/chat",
+    `${boardPath(boardId)}/ai/chat`,
     jsonRequest("POST", { question, history }),
   );
 }
 
 export function renameColumn(
+  boardId: string,
   columnId: string,
   title: string,
 ): Promise<BoardColumn> {
   return requestJson<BoardColumn>(
-    `/api/board/columns/${encodeURIComponent(columnId)}`,
+    `${boardPath(boardId)}/columns/${encodeURIComponent(columnId)}`,
     jsonRequest("PATCH", { title }),
   );
 }
 
 export function createCard(
+  boardId: string,
   columnId: string,
-  title: string,
-  details: string,
+  fields: CardFields,
 ): Promise<BoardCard> {
   return requestJson<BoardCard>(
-    "/api/board/cards",
-    jsonRequest("POST", { column_id: columnId, title, details }),
+    `${boardPath(boardId)}/cards`,
+    jsonRequest("POST", { column_id: columnId, ...fields }),
   );
 }
 
 export function updateCard(
+  boardId: string,
   cardId: string,
-  title: string,
-  details: string,
+  fields: CardFields,
 ): Promise<BoardCard> {
   return requestJson<BoardCard>(
-    `/api/board/cards/${encodeURIComponent(cardId)}`,
-    jsonRequest("PATCH", { title, details }),
+    cardPath(boardId, cardId),
+    jsonRequest("PATCH", fields),
   );
 }
 
 export function moveCard(
+  boardId: string,
   cardId: string,
   columnId: string,
   position: number,
 ): Promise<BoardCard> {
   return requestJson<BoardCard>(
-    `/api/board/cards/${encodeURIComponent(cardId)}/move`,
+    `${cardPath(boardId, cardId)}/move`,
     jsonRequest("PATCH", { column_id: columnId, position }),
   );
 }
 
-export function deleteCard(cardId: string): Promise<void> {
-  return requestNoContent(
-    `/api/board/cards/${encodeURIComponent(cardId)}`,
-    { method: "DELETE" },
-  );
+export function deleteCard(boardId: string, cardId: string): Promise<void> {
+  return requestNoContent(cardPath(boardId, cardId), { method: "DELETE" });
 }

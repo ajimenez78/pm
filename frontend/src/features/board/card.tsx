@@ -4,22 +4,21 @@ import { useState, type FormEvent } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Check, GripVertical, Pencil, Trash2, X } from "lucide-react";
-import type { BoardCard } from "./board-data";
+import type { BoardCard, CardFields, Priority } from "./board-data";
+import { CardBadges, CardMetaFields } from "./card-meta";
 
 type CardProps = {
   card: BoardCard;
   onDelete: (cardId: string) => void;
-  onEdit: (
-    cardId: string,
-    title: string,
-    details: string,
-  ) => Promise<boolean>;
+  onEdit: (cardId: string, fields: CardFields) => Promise<boolean>;
 };
 
 export function Card({ card, onDelete, onEdit }: CardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(card.title);
   const [details, setDetails] = useState(card.details);
+  const [priority, setPriority] = useState<Priority>(card.priority);
+  const [dueDate, setDueDate] = useState(card.due_date ?? "");
   const [error, setError] = useState("");
   const {
     attributes,
@@ -40,7 +39,12 @@ export function Card({ card, onDelete, onEdit }: CardProps) {
       return;
     }
 
-    const saved = await onEdit(card.id, trimmedTitle, details.trim());
+    const saved = await onEdit(card.id, {
+      title: trimmedTitle,
+      details: details.trim(),
+      priority,
+      due_date: dueDate || null,
+    });
     if (saved) {
       setIsEditing(false);
       setError("");
@@ -50,6 +54,8 @@ export function Card({ card, onDelete, onEdit }: CardProps) {
   function startEditing() {
     setTitle(card.title);
     setDetails(card.details);
+    setPriority(card.priority);
+    setDueDate(card.due_date ?? "");
     setError("");
     setIsEditing(true);
   }
@@ -95,6 +101,13 @@ export function Card({ card, onDelete, onEdit }: CardProps) {
             onChange={(event) => setDetails(event.target.value)}
             rows={3}
             value={details}
+          />
+          <CardMetaFields
+            dueDate={dueDate}
+            idPrefix={`card-${card.id}`}
+            onDueDateChange={setDueDate}
+            onPriorityChange={setPriority}
+            priority={priority}
           />
           {error && (
             <p className="form-error" role="alert">
@@ -157,6 +170,7 @@ export function Card({ card, onDelete, onEdit }: CardProps) {
           </div>
           <h3 className="task-card-title">{card.title}</h3>
           {card.details && <p className="task-card-details">{card.details}</p>}
+          <CardBadges card={card} />
         </>
       )}
     </article>

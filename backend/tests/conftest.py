@@ -32,3 +32,29 @@ def signed_in_client(client: TestClient) -> TestClient:
     )
     assert response.status_code == 200
     return client
+
+
+@pytest.fixture
+def board_id(signed_in_client: TestClient) -> str:
+    """ID of the seeded user's sample board."""
+    return signed_in_client.get("/api/boards").json()[0]["id"]
+
+
+@pytest.fixture
+def board_path(board_id: str) -> str:
+    return f"/api/boards/{board_id}"
+
+
+def register(
+    client: TestClient,
+    username: str,
+    password: str = "secret-pass",
+) -> TestClient:
+    """Return a new client, sharing the app, signed in as a new account."""
+    other = TestClient(client.app)
+    response = other.post(
+        "/api/auth/register",
+        json={"username": username, "password": password},
+    )
+    assert response.status_code == 201, response.text
+    return other

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "./schema.json",
   "title": "Project management SQLite data snapshot",
-  "description": "JSON representation of user, board, fixed column, and card records. Cross-record integrity is enforced by SQLite.",
+  "description": "JSON representation of user, board, fixed column, and card records (schema version 2). Cross-record integrity is enforced by SQLite.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -14,7 +14,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "users": {
       "type": "array",
@@ -57,6 +57,7 @@
       "required": [
         "id",
         "username",
+        "password_hash",
         "created_at",
         "updated_at"
       ],
@@ -68,6 +69,10 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 64
+        },
+        "password_hash": {
+          "type": "string",
+          "description": "scrypt$<salt hex>$<digest hex>; never returned by the API"
         },
         "created_at": {
           "$ref": "#/$defs/timestamp"
@@ -84,6 +89,7 @@
         "id",
         "user_id",
         "title",
+        "description",
         "created_at",
         "updated_at"
       ],
@@ -98,6 +104,10 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
         },
         "created_at": {
           "$ref": "#/$defs/timestamp"
@@ -159,6 +169,8 @@
         "column_id",
         "title",
         "details",
+        "priority",
+        "due_date",
         "position",
         "created_at",
         "updated_at"
@@ -188,6 +200,26 @@
         "details": {
           "type": "string",
           "maxLength": 500
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "due_date": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "position": {
           "type": "integer",

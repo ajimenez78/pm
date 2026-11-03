@@ -14,6 +14,7 @@ import { sendChatMessage } from "./board-api";
 import type { BoardData, ChatMessage } from "./board-data";
 
 type ChatPanelProps = {
+  boardId: string;
   messages: ChatMessage[];
   onMessagesChange: Dispatch<SetStateAction<ChatMessage[]>>;
   onBoardUpdate: (board: BoardData) => void;
@@ -21,6 +22,7 @@ type ChatPanelProps = {
 };
 
 export function ChatPanel({
+  boardId,
   messages,
   onMessagesChange,
   onBoardUpdate,
@@ -45,7 +47,11 @@ export function ChatPanel({
     setIsSending(true);
     setError("");
     try {
-      const response = await sendChatMessage(trimmedQuestion, messages.slice(-20));
+      const response = await sendChatMessage(
+        boardId,
+        trimmedQuestion,
+        messages.slice(-20),
+      );
       onMessagesChange((currentMessages) => [
         ...currentMessages,
         { role: "user", content: trimmedQuestion },

@@ -27,34 +27,42 @@ import {
   PanelsTopLeft,
   Pencil,
   Plus,
+  Search,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import { useRef, useState, type FormEvent } from "react";
 import { AddCardForm } from "./add-card-form";
-import type { BoardColumn, ChatMessage } from "./board-data";
+import {
+  PRIORITIES,
+  type BoardCard,
+  type BoardColumn,
+  type CardFields,
+  type ChatMessage,
+  type Priority,
+} from "./board-data";
 import { Card } from "./card";
+import { PRIORITY_LABELS } from "./card-meta";
 import { ChatPanel } from "./chat-panel";
 import { useBoard } from "./use-board";
 
 type ColumnProps = {
   column: BoardColumn;
+  visibleCards: BoardCard[];
   isDragging: boolean;
   isEditing: boolean;
   isDropTarget: boolean;
-  onAdd: (title: string, details: string) => Promise<boolean>;
+  onAdd: (fields: CardFields) => Promise<boolean>;
   onDelete: (cardId: string) => void;
-  onUpdate: (
-    cardId: string,
-    title: string,
-    details: string,
-  ) => Promise<boolean>;
+  onUpdate: (cardId: string, fields: CardFields) => Promise<boolean>;
   onEdit: () => void;
   onRename: (title: string) => Promise<boolean>;
 };
 
 function BoardColumnView({
   column,
+  visibleCards,
   isDragging,
   isEditing,
   isDropTarget,
@@ -124,7 +132,7 @@ function BoardColumnView({
             <div className="column-title-wrap">
               <span className={`column-dot column-dot-${column.id}`} />
               <h2 id={`column-title-${column.id}`}>{column.title}</h2>
-              <span className="column-count">{column.cards.length}</span>
+              <span className="column-count">{visibleCards.length}</span>
             </div>
             <button
               className="icon-button rename-column"
@@ -142,11 +150,11 @@ function BoardColumnView({
       </header>
 
       <SortableContext
-        items={column.cards.map((card) => card.id)}
+        items={visibleCards.map((card) => card.id)}
         strategy={verticalListSortingStrategy}
       >
         <div className="card-list">
-          {column.cards.map((card) => (
+          {visibleCards.map((card) => (
             <Card
               card={card}
               key={card.id}
@@ -166,8 +174,9 @@ function BoardColumnView({
 
       {isAdding ? (
         <AddCardForm
-          onAdd={async (title, details) => {
-            const saved = await onAdd(title, details);
+          columnId={column.id}
+          onAdd={async (fields) => {
+            const saved = await onAdd(fields);
             if (saved) {
               setIsAdding(false);
             }
@@ -190,19 +199,99 @@ function BoardColumnView({
   );
 }
 
-export function Board() {
+type BoardProps = {
+  boardId: string;
+  onChange?: () => void;
+  onDelete: () => Promise<boolean>;
+};
+
+function matchesFilters(
+  card: BoardCard,
+  query: string,
+  priority: Priority | "all",
+): boolean {
+  const text = `${card.title} ${card.details}`.toLowerCase();
+  return (
+    text.includes(query.trim().toLowerCase()) &&
+    (priority === "all" || card.priority === priority)
+  );
+}
+
+type BoardDetailsFormProps = {
+  title: string;
+  description: string;
+  onCancel: () => void;
+  onSave: (title: string, description: string) => Promise<boolean>;
+};
+
+function BoardDetailsForm({
+  title: initialTitle,
+  description: initialDescription,
+  onCancel,
+  onSave,
+}: BoardDetailsFormProps) {
+  const [title, setTitle] = useState(initialTitle);
+  const [description, setDescription] = useState(initialDescription);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (title.trim()) {
+      await onSave(title.trim(), description.trim());
+    }
+  }
+
+  return (
+    <form className="board-details-form" onSubmit={handleSubmit}>
+      <label htmlFor="board-title-input">Board title</label>
+      <input
+        autoFocus
+        id="board-title-input"
+        maxLength={120}
+        onChange={(event) => setTitle(event.target.value)}
+        required
+        value={title}
+      />
+      <label htmlFor="board-description-input">Board description</label>
+      <textarea
+        id="board-description-input"
+        maxLength={500}
+        onChange={(event) => setDescription(event.target.value)}
+        rows={2}
+        value={description}
+      />
+      <div className="form-actions">
+        <button className="button button-quiet" onClick={onCancel} type="button">
+          <X aria-hidden="true" size={15} />
+          Cancel
+        </button>
+        <button className="button button-primary" type="submit">
+          <Check aria-hidden="true" size={15} />
+          Save board
+        </button>
+      </div>
+    </form>
+  );
+}
+
+export function Board({ boardId, onChange, onDelete }: BoardProps) {
   const {
     board,
     status,
     error,
     retry,
+    updateDetails,
     renameColumn,
     addCard,
     updateCard,
     deleteCard,
     moveCard,
     applyBoardUpdate,
-  } = useBoard();
+  } = useBoard(boardId, onChange);
+  const [isEditingDetails, setIsEditingDetails] = useState(false);
+  const [query, setQuery] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState<Priority | "all">(
+    "all",
+  );
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
@@ -221,6 +310,28 @@ export function Board() {
     (total, column) => total + column.cards.length,
     0,
   );
+  const isFiltering = query.trim() !== "" || priorityFilter !== "all";
+  const visibleCards = Object.fromEntries(
+    columns.map((column) => [
+      column.id,
+      column.cards.filter((card) =>
+        matchesFilters(card, query, priorityFilter),
+      ),
+    ]),
+  );
+  const visibleCount = Object.values(visibleCards).reduce(
+    (total, cards) => total + cards.length,
+    0,
+  );
+
+  async function handleDeleteBoard() {
+    if (
+      board &&
+      window.confirm(`Delete "${board.title}" and all of its cards?`)
+    ) {
+      await onDelete();
+    }
+  }
 
   const collisionDetection: CollisionDetection = (args) => {
     if (args.pointerCoordinates) {
@@ -324,10 +435,48 @@ export function Board() {
             <span className="board-live-dot" />
             YOUR WORKSPACE
           </p>
-          <h2 id="board-title">{board.title}</h2>
-          <p className="board-subtitle">
-            A little more clarity, one card at a time.
-          </p>
+          {isEditingDetails ? (
+            <BoardDetailsForm
+              description={board.description}
+              onCancel={() => setIsEditingDetails(false)}
+              onSave={async (title, description) => {
+                const saved = await updateDetails(title, description);
+                if (saved) {
+                  setIsEditingDetails(false);
+                }
+                return saved;
+              }}
+              title={board.title}
+            />
+          ) : (
+            <>
+              <div className="board-title-row">
+                <h2 id="board-title">{board.title}</h2>
+                <button
+                  aria-label="Edit board details"
+                  className="icon-button"
+                  onClick={() => setIsEditingDetails(true)}
+                  title="Edit board details"
+                  type="button"
+                >
+                  <Pencil aria-hidden="true" size={14} />
+                </button>
+                <button
+                  aria-label="Delete board"
+                  className="icon-button delete-card"
+                  onClick={handleDeleteBoard}
+                  title="Delete board"
+                  type="button"
+                >
+                  <Trash2 aria-hidden="true" size={14} />
+                </button>
+              </div>
+              <p className="board-subtitle">
+                {board.description ||
+                  "A little more clarity, one card at a time."}
+              </p>
+            </>
+          )}
         </div>
         <div className="board-heading-actions">
           <div className="board-summary" aria-label="Board summary">
@@ -355,6 +504,40 @@ export function Board() {
       </div>
       {error && <p className="board-error" role="alert">{error}</p>}
 
+      <div className="board-toolbar">
+        <label className="board-search">
+          <Search aria-hidden="true" size={14} />
+          <span className="sr-only">Search cards</span>
+          <input
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search cards"
+            type="search"
+            value={query}
+          />
+        </label>
+        <label className="board-filter">
+          <span className="sr-only">Filter by priority</span>
+          <select
+            onChange={(event) =>
+              setPriorityFilter(event.target.value as Priority | "all")
+            }
+            value={priorityFilter}
+          >
+            <option value="all">All priorities</option>
+            {PRIORITIES.map((value) => (
+              <option key={value} value={value}>
+                {PRIORITY_LABELS[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+        {isFiltering && (
+          <p className="board-filter-status" role="status">
+            Showing {visibleCount} of {cardCount} cards
+          </p>
+        )}
+      </div>
+
       <div className={`board-body${isChatOpen ? " board-body-chat-open" : ""}`}>
         <DndContext
           collisionDetection={collisionDetection}
@@ -370,13 +553,12 @@ export function Board() {
               {columns.map((column) => (
                 <BoardColumnView
                   column={column}
+                  visibleCards={visibleCards[column.id]}
                   isDragging={activeCardId !== null}
                   isEditing={editingColumnId === column.id}
                   isDropTarget={overColumnId === column.id}
                   key={column.id}
-                  onAdd={(title, details) =>
-                    addCard(column.id, title, details)
-                  }
+                  onAdd={(fields) => addCard(column.id, fields)}
                   onDelete={deleteCard}
                   onUpdate={updateCard}
                   onEdit={() =>
@@ -415,6 +597,7 @@ export function Board() {
         </DndContext>
         {isChatOpen && (
           <ChatPanel
+            boardId={boardId}
             messages={chatMessages}
             onBoardUpdate={applyBoardUpdate}
             onMessagesChange={setChatMessages}

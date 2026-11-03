@@ -14,6 +14,7 @@ function ChatPanelHarness({ onBoardUpdate, onClose }: HarnessProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   return (
     <ChatPanel
+      boardId="board-1"
       messages={messages}
       onBoardUpdate={onBoardUpdate}
       onClose={onClose}
@@ -26,6 +27,7 @@ const fetchMock = vi.fn<typeof fetch>();
 const board: BoardData = {
   id: "board-1",
   title: "Product launch",
+  description: "",
   columns: [],
 };
 
@@ -59,6 +61,10 @@ describe("ChatPanel", () => {
 
     expect(await screen.findByText("I added the task.")).toBeInTheDocument();
     expect(onBoardUpdate).toHaveBeenCalledWith(board);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/boards/board-1/ai/chat",
+      expect.objectContaining({ method: "POST" }),
+    );
     expect(screen.getByText("Add a task")).toBeInTheDocument();
   });
 

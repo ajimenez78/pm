@@ -2,15 +2,20 @@
 
 import { useState, type FormEvent } from "react";
 import { Plus, X } from "lucide-react";
+import type { CardFields, Priority } from "./board-data";
+import { CardMetaFields } from "./card-meta";
 
 type AddCardFormProps = {
-  onAdd: (title: string, details: string) => Promise<boolean>;
+  columnId: string;
+  onAdd: (fields: CardFields) => Promise<boolean>;
   onCancel: () => void;
 };
 
-export function AddCardForm({ onAdd, onCancel }: AddCardFormProps) {
+export function AddCardForm({ columnId, onAdd, onCancel }: AddCardFormProps) {
   const [title, setTitle] = useState("");
   const [details, setDetails] = useState("");
+  const [priority, setPriority] = useState<Priority>("none");
+  const [dueDate, setDueDate] = useState("");
   const [error, setError] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -22,15 +27,20 @@ export function AddCardForm({ onAdd, onCancel }: AddCardFormProps) {
       return;
     }
 
-    await onAdd(trimmedTitle, details.trim());
+    await onAdd({
+      title: trimmedTitle,
+      details: details.trim(),
+      priority,
+      due_date: dueDate || null,
+    });
   }
 
   return (
     <form className="add-card-form" onSubmit={handleSubmit}>
-      <label htmlFor="new-card-title">Title</label>
+      <label htmlFor={`new-card-title-${columnId}`}>Title</label>
       <input
         autoFocus
-        id="new-card-title"
+        id={`new-card-title-${columnId}`}
         aria-label="Card title"
         maxLength={100}
         onChange={(event) => {
@@ -41,15 +51,22 @@ export function AddCardForm({ onAdd, onCancel }: AddCardFormProps) {
         required
         value={title}
       />
-      <label htmlFor="new-card-details">Details</label>
+      <label htmlFor={`new-card-details-${columnId}`}>Details</label>
       <textarea
-        id="new-card-details"
+        id={`new-card-details-${columnId}`}
         aria-label="Details"
         maxLength={500}
         onChange={(event) => setDetails(event.target.value)}
         placeholder="Add a little context"
         rows={3}
         value={details}
+      />
+      <CardMetaFields
+        dueDate={dueDate}
+        idPrefix={`new-card-${columnId}`}
+        onDueDateChange={setDueDate}
+        onPriorityChange={setPriority}
+        priority={priority}
       />
       {error && (
         <p className="form-error" role="alert">

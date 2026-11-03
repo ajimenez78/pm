@@ -1,7 +1,12 @@
+from contextlib import closing
+from pathlib import Path
+import sqlite3
+
 import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from conftest import register
 
 pytestmark = pytest.mark.integration
 
@@ -58,26 +63,180 @@ def test_expired_session_is_rejected(
 def test_session_check_rejects_an_unauthenticated_request(
     client: TestClient,
 ) -> None:
-    response = client.get("/api/auth/session")
-
-    assert response.status_code == 401
+    assert client.get("/api/auth/session").status_code == 401
 
 
 def test_logout_revokes_the_session_even_if_its_cookie_is_replayed(
+    signed_in_client: TestClient,
+) -> None:
+    session_id = signed_in_client.cookies.get("pm_session")
+    assert session_id is not None
+
+    logout_response = signed_in_client.post("/api/auth/logout")
+
+    assert logout_response.status_code == 200
+    assert signed_in_client.get("/api/auth/session").status_code == 401
+    signed_in_client.cookies.set("pm_session", session_id)
+    assert signed_in_client.get("/api/auth/session").status_code == 401
+
+
+def test_registration_signs_in_with_an_empty_starter_board(
     client: TestClient,
 ) -> None:
-    client.post(
+    response = client.post(
+        "/api/auth/register",
+        json={"username": "  ada  ", "password": "analytical"},
+    )
+
+    assert response.status_code == 201
+    assert response.json() == {"username": "ada"}
+    assert client.get("/api/auth/session").json() == {"username": "ada"}
+    boards = client.get("/api/boards").json()
+    assert [(board["title"], board["card_count"]) for board in boards] == [
+        ("My first board", 0),
+    ]
+
+    client.post("/api/auth/logout")
+    login = client.post(
+        "/api/auth/login",
+        json={"username": "ADA", "password": "analytical"},
+    )
+    assert login.status_code == 200
+    assert login.json() == {"username": "ada"}
+
+
+def test_registration_rejects_a_taken_username_case_insensitively(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/api/auth/register",
+        json={"username": "USER", "password": "another-pass"},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "That username is already taken"}
+    assert client.get("/api/auth/session").status_code == 401
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"username": "ab", "password": "long-enough"},
+        {"username": "x" * 33, "password": "long-enough"},
+        {"username": "has space", "password": "long-enough"},
+        {"username": "valid", "password": "short"},
+        {"username": "valid", "password": "x" * 129},
+    ],
+)
+def test_registration_validates_username_and_password(
+    client: TestClient,
+    payload: dict[str, str],
+) -> None:
+    assert client.post("/api/auth/register", json=payload).status_code == 422
+
+
+def test_password_change_requires_the_current_password(
+    signed_in_client: TestClient,
+) -> None:
+    response = signed_in_client.post(
+        "/api/auth/password",
+        json={"current_password": "wrong", "new_password": "new-password"},
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Current password is incorrect"}
+
+
+def test_password_change_revokes_other_sessions(
+    signed_in_client: TestClient,
+) -> None:
+    other_device = TestClient(signed_in_client.app)
+    other_device.post(
         "/api/auth/login",
         json={"username": "user", "password": "password"},
     )
-    session_id = client.cookies.get("pm_session")
-    assert session_id is not None
 
-    logout_response = client.post("/api/auth/logout")
+    response = signed_in_client.post(
+        "/api/auth/password",
+        json={"current_password": "password", "new_password": "new-password"},
+    )
 
-    assert logout_response.status_code == 200
-    assert logout_response.json() == {"status": "ok"}
-    assert client.get("/api/auth/session").status_code == 401
+    assert response.status_code == 200
+    assert signed_in_client.get("/api/auth/session").status_code == 200
+    assert other_device.get("/api/auth/session").status_code == 401
+    old = other_device.post(
+        "/api/auth/login",
+        json={"username": "user", "password": "password"},
+    )
+    assert old.status_code == 401
+    new = other_device.post(
+        "/api/auth/login",
+        json={"username": "user", "password": "new-password"},
+    )
+    assert new.status_code == 200
 
-    client.cookies.set("pm_session", session_id)
-    assert client.get("/api/auth/session").status_code == 401
+
+def test_account_deletion_requires_the_password(
+    signed_in_client: TestClient,
+) -> None:
+    response = signed_in_client.post(
+        "/api/auth/delete-account",
+        json={"password": "wrong"},
+    )
+
+    assert response.status_code == 403
+    assert signed_in_client.get("/api/auth/session").status_code == 200
+
+
+def test_account_deletion_removes_data_and_all_sessions(
+    client: TestClient,
+    database_path: Path,
+) -> None:
+    owner = register(client, "leaving")
+    second_device = TestClient(client.app)
+    second_device.post(
+        "/api/auth/login",
+        json={"username": "leaving", "password": "secret-pass"},
+    )
+    board_id = owner.get("/api/boards").json()[0]["id"]
+
+    response = owner.post(
+        "/api/auth/delete-account",
+        json={"password": "secret-pass"},
+    )
+
+    assert response.status_code == 200
+    assert owner.get("/api/auth/session").status_code == 401
+    assert second_device.get("/api/auth/session").status_code == 401
+    login = client.post(
+        "/api/auth/login",
+        json={"username": "leaving", "password": "secret-pass"},
+    )
+    assert login.status_code == 401
+    with closing(sqlite3.connect(database_path)) as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM board_columns WHERE board_id = ?",
+            (board_id,),
+        ).fetchone() == (0,)
+    # The username can be registered again afterwards.
+    register(client, "leaving")
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/api/auth/password", "/api/auth/delete-account"],
+)
+def test_account_operations_require_authentication(
+    client: TestClient,
+    path: str,
+) -> None:
+    response = client.post(
+        path,
+        json={
+            "password": "password",
+            "current_password": "password",
+            "new_password": "new-password",
+        },
+    )
+
+    assert response.status_code == 401

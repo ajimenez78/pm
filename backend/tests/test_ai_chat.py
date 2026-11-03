@@ -1,13 +1,10 @@
-from contextlib import closing
-from pathlib import Path
-import sqlite3
 from types import SimpleNamespace
-from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from conftest import register
 
 pytestmark = pytest.mark.integration
 
@@ -57,7 +54,7 @@ def test_chat_requires_authentication_before_calling_openai(
     _mock_openai(monkeypatch, {}, calls)
 
     response = client.post(
-        "/api/ai/chat",
+        "/api/boards/any-board/ai/chat",
         json={"question": "Add a task"},
     )
 
@@ -68,9 +65,10 @@ def test_chat_requires_authentication_before_calling_openai(
 
 def test_chat_applies_supported_operations_and_sends_board_and_history(
     signed_in_client: TestClient,
+    board_path: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    original_board = signed_in_client.get("/api/board").json()
+    original_board = signed_in_client.get(board_path).json()
     existing_card = original_board["columns"][0]["cards"][0]
     operations = [
         {
@@ -78,12 +76,16 @@ def test_chat_applies_supported_operations_and_sends_board_and_history(
             "column_id": "backlog",
             "title": "AI-created task",
             "details": "Created by the assistant",
+            "priority": "high",
+            "due_date": "2026-12-24",
         },
         {
             "type": "edit_card",
             "card_id": existing_card["id"],
             "title": "AI-edited task",
             "details": "Updated by the assistant",
+            "priority": "low",
+            "due_date": None,
         },
         {
             "type": "move_card",
@@ -100,7 +102,7 @@ def test_chat_applies_supported_operations_and_sends_board_and_history(
     )
 
     response = signed_in_client.post(
-        "/api/ai/chat",
+        f"{board_path}/ai/chat",
         json={
             "question": "Create a task, update the first card, and move it.",
             "history": [
@@ -114,7 +116,7 @@ def test_chat_applies_supported_operations_and_sends_board_and_history(
     result = response.json()
     assert result["reply"] == "I updated the board."
     assert result["changed"] is True
-    assert result["board"] == signed_in_client.get("/api/board").json()
+    assert result["board"] == signed_in_client.get(board_path).json()
     assert calls[0]["model"] == "gpt-6-luna"
     assert calls[0]["store"] is False
     schema = calls[0]["text_format"].model_json_schema()
@@ -146,59 +148,27 @@ def test_chat_applies_supported_operations_and_sends_board_and_history(
         if card["title"] == "AI-created task"
     )
     assert created_card["details"] == "Created by the assistant"
+    assert (created_card["priority"], created_card["due_date"]) == (
+        "high",
+        "2026-12-24",
+    )
     moved_card = next(
         card
         for card in result["board"]["columns"][3]["cards"]
         if card["id"] == existing_card["id"]
     )
     assert moved_card["title"] == "AI-edited task"
+    assert (moved_card["priority"], moved_card["due_date"]) == ("low", None)
     assert moved_card["position"] == 1
 
 
-def test_chat_operations_are_limited_to_the_session_users_board(
+def test_chat_cannot_target_another_users_board(
     signed_in_client: TestClient,
-    database_path: Path,
+    board_path: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    other_user_id = str(uuid4())
-    other_board_id = str(uuid4())
-    timestamp = "2026-01-01T00:00:00Z"
-    with closing(sqlite3.connect(database_path)) as connection, connection:
-        connection.execute(
-            "INSERT INTO users VALUES (?, ?, ?, ?)",
-            (other_user_id, "other", timestamp, timestamp),
-        )
-        connection.execute(
-            "INSERT INTO boards VALUES (?, ?, ?, ?, ?)",
-            (other_board_id, other_user_id, "Other board", timestamp, timestamp),
-        )
-        connection.execute(
-            """
-            INSERT INTO board_columns VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                other_board_id,
-                "backlog",
-                "Backlog",
-                0,
-                timestamp,
-                timestamp,
-            ),
-        )
-
-    own_session_id = signed_in_client.cookies.get("pm_session")
-    assert own_session_id is not None
-    other_session_id = "other-user-session"
-    signed_in_client.app.state.sessions[other_session_id] = (
-        other_user_id,
-        4_102_444_800,
-    )
-    signed_in_client.cookies.set(
-        "pm_session",
-        other_session_id,
-        domain="testserver.local",
-        path="/",
-    )
+    intruder = register(signed_in_client, "intruder")
+    board = signed_in_client.get(board_path).json()
     calls: list[dict[str, object]] = []
     _mock_openai(
         monkeypatch,
@@ -208,8 +178,46 @@ def test_chat_operations_are_limited_to_the_session_users_board(
                 {
                     "type": "create_card",
                     "column_id": "backlog",
-                    "title": "Other user's task",
+                    "title": "Injected task",
                     "details": "",
+                    "priority": "none",
+                    "due_date": None,
+                },
+            ],
+        },
+        calls,
+    )
+
+    response = intruder.post(
+        f"{board_path}/ai/chat",
+        json={"question": "Add a task"},
+    )
+
+    assert response.status_code == 404
+    assert calls == []
+    assert signed_in_client.get(board_path).json() == board
+
+
+def test_chat_changes_only_the_selected_board(
+    signed_in_client: TestClient,
+    board_path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    other = signed_in_client.post("/api/boards", json={"title": "Side"}).json()
+    sample = signed_in_client.get(board_path).json()
+    calls: list[dict[str, object]] = []
+    _mock_openai(
+        monkeypatch,
+        {
+            "reply": "Added.",
+            "operations": [
+                {
+                    "type": "create_card",
+                    "column_id": "done",
+                    "title": "Side task",
+                    "details": "",
+                    "priority": "medium",
+                    "due_date": "2026-11-30",
                 },
             ],
         },
@@ -217,31 +225,27 @@ def test_chat_operations_are_limited_to_the_session_users_board(
     )
 
     response = signed_in_client.post(
-        "/api/ai/chat",
-        json={"question": "Add a task"},
+        f"/api/boards/{other['id']}/ai/chat",
+        json={"question": "Add a side task"},
     )
 
     assert response.status_code == 200
-    assert response.json()["board"]["title"] == "Other board"
-    signed_in_client.cookies.set(
-        "pm_session",
-        own_session_id,
-        domain="testserver.local",
-        path="/",
+    card = response.json()["board"]["columns"][4]["cards"][0]
+    assert (card["title"], card["priority"], card["due_date"]) == (
+        "Side task",
+        "medium",
+        "2026-11-30",
     )
-    own_board = signed_in_client.get("/api/board").json()
-    assert all(
-        card["title"] != "Other user's task"
-        for column in own_board["columns"]
-        for card in column["cards"]
-    )
+    assert "Side" in calls[0]["input"][-1]["content"]
+    assert signed_in_client.get(board_path).json() == sample
 
 
 def test_chat_returns_unchanged_board_for_a_no_operation_reply(
     signed_in_client: TestClient,
+    board_path: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    board = signed_in_client.get("/api/board").json()
+    board = signed_in_client.get(board_path).json()
     calls: list[dict[str, object]] = []
     _mock_openai(
         monkeypatch,
@@ -250,7 +254,7 @@ def test_chat_returns_unchanged_board_for_a_no_operation_reply(
     )
 
     response = signed_in_client.post(
-        "/api/ai/chat",
+        f"{board_path}/ai/chat",
         json={"question": "Is the board up to date?"},
     )
 
@@ -264,9 +268,10 @@ def test_chat_returns_unchanged_board_for_a_no_operation_reply(
 
 def test_chat_rejects_invalid_operation_without_partial_mutation(
     signed_in_client: TestClient,
+    board_path: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    board = signed_in_client.get("/api/board").json()
+    board = signed_in_client.get(board_path).json()
     calls: list[dict[str, object]] = []
     _mock_openai(
         monkeypatch,
@@ -278,12 +283,16 @@ def test_chat_rejects_invalid_operation_without_partial_mutation(
                     "column_id": "backlog",
                     "title": "Must roll back",
                     "details": "",
+                    "priority": "none",
+                    "due_date": None,
                 },
                 {
                     "type": "edit_card",
                     "card_id": "not-a-card",
                     "title": "Invalid",
                     "details": "",
+                    "priority": "none",
+                    "due_date": None,
                 },
             ],
         },
@@ -291,7 +300,7 @@ def test_chat_rejects_invalid_operation_without_partial_mutation(
     )
 
     response = signed_in_client.post(
-        "/api/ai/chat",
+        f"{board_path}/ai/chat",
         json={"question": "Make two changes"},
     )
 
@@ -299,7 +308,7 @@ def test_chat_rejects_invalid_operation_without_partial_mutation(
     assert response.json() == {
         "detail": "AI operation references a missing card or column",
     }
-    assert signed_in_client.get("/api/board").json() == board
+    assert signed_in_client.get(board_path).json() == board
 
 
 @pytest.mark.parametrize(
@@ -315,32 +324,34 @@ def test_chat_rejects_invalid_operation_without_partial_mutation(
 )
 def test_chat_returns_generic_error_for_malformed_structured_output(
     signed_in_client: TestClient,
+    board_path: str,
     monkeypatch: pytest.MonkeyPatch,
     output: dict[str, object],
 ) -> None:
-    board = signed_in_client.get("/api/board").json()
+    board = signed_in_client.get(board_path).json()
     calls: list[dict[str, object]] = []
     _mock_openai(monkeypatch, output, calls)
 
     response = signed_in_client.post(
-        "/api/ai/chat",
+        f"{board_path}/ai/chat",
         json={"question": "Delete a card"},
     )
 
     assert response.status_code == 502
     assert response.json() == {"detail": "AI returned an invalid response"}
-    assert signed_in_client.get("/api/board").json() == board
+    assert signed_in_client.get(board_path).json() == board
 
 
 def test_chat_hides_openai_provider_errors(
     signed_in_client: TestClient,
+    board_path: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[dict[str, object]] = []
     _mock_openai(monkeypatch, main.OpenAIError("provider detail"), calls)
 
     response = signed_in_client.post(
-        "/api/ai/chat",
+        f"{board_path}/ai/chat",
         json={"question": "Summarize the board"},
     )
 
@@ -350,6 +361,7 @@ def test_chat_hides_openai_provider_errors(
 
 def test_chat_reports_missing_openai_configuration(
     signed_in_client: TestClient,
+    board_path: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -360,7 +372,7 @@ def test_chat_reports_missing_openai_configuration(
     )
 
     response = signed_in_client.post(
-        "/api/ai/chat",
+        f"{board_path}/ai/chat",
         json={"question": "Summarize the board"},
     )
 
@@ -370,9 +382,10 @@ def test_chat_reports_missing_openai_configuration(
 
 def test_chat_rejects_out_of_range_move_without_partial_mutation(
     signed_in_client: TestClient,
+    board_path: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    board = signed_in_client.get("/api/board").json()
+    board = signed_in_client.get(board_path).json()
     card_id = board["columns"][0]["cards"][0]["id"]
     calls: list[dict[str, object]] = []
     _mock_openai(
@@ -385,6 +398,8 @@ def test_chat_rejects_out_of_range_move_without_partial_mutation(
                     "column_id": "backlog",
                     "title": "Must roll back",
                     "details": "",
+                    "priority": "none",
+                    "due_date": None,
                 },
                 {
                     "type": "move_card",
@@ -398,7 +413,7 @@ def test_chat_rejects_out_of_range_move_without_partial_mutation(
     )
 
     response = signed_in_client.post(
-        "/api/ai/chat",
+        f"{board_path}/ai/chat",
         json={"question": "Make two changes"},
     )
 
@@ -406,4 +421,4 @@ def test_chat_rejects_out_of_range_move_without_partial_mutation(
     assert response.json() == {
         "detail": "AI operation position is outside the column",
     }
-    assert signed_in_client.get("/api/board").json() == board
+    assert signed_in_client.get(board_path).json() == board

@@ -1,8 +1,17 @@
-export type BoardCard = {
-  id: string;
-  column_id: string;
+export const PRIORITIES = ["none", "low", "medium", "high"] as const;
+
+export type Priority = (typeof PRIORITIES)[number];
+
+export type CardFields = {
   title: string;
   details: string;
+  priority: Priority;
+  due_date: string | null;
+};
+
+export type BoardCard = CardFields & {
+  id: string;
+  column_id: string;
   position: number;
 };
 
@@ -16,7 +25,15 @@ export type BoardColumn = {
 export type BoardData = {
   id: string;
   title: string;
+  description: string;
   columns: BoardColumn[];
+};
+
+export type BoardSummary = {
+  id: string;
+  title: string;
+  description: string;
+  card_count: number;
 };
 
 export type ChatMessage = {

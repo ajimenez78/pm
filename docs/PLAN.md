@@ -402,6 +402,64 @@ Deliver a local project-management web app with a Kanban board, a hardcoded MVP 
 - AI-created, edited, or moved cards appear in the board immediately and match the persisted backend state.
 - The finished app runs locally using the documented Docker and script workflows.
 
+## Part 11: Accounts, multiple boards, and card metadata
+
+The user asked to grow the MVP into a fuller project management app with user
+management, multiple boards per user, and other features, tested thoroughly.
+
+### Checklist
+
+- [x] Accounts: registration, scrypt-hashed passwords, login against the
+  database, password change (revokes other sessions), account deletion.
+- [x] Multiple boards per user: list, create, rename/describe, delete, switch;
+  the selection is remembered per browser.
+- [x] Cards gain a priority (`none`, `low`, `medium`, `high`) and an optional
+  due date, shown as badges with overdue/today highlighting; the AI can set
+  both.
+- [x] Board search and priority filter.
+- [x] Schema version 2 with an automatic, data-preserving migration from
+  version 1.
+- [x] E2E tests run against the real backend instead of mocked API routes.
+
+### API
+
+- `POST /api/auth/register|login|logout|password|delete-account`,
+  `GET /api/auth/session`.
+- `GET|POST /api/boards`, `GET|PATCH|DELETE /api/boards/{id}`,
+  `PATCH /api/boards/{id}/columns/{column_id}`,
+  `POST /api/boards/{id}/cards`, `PATCH|DELETE /api/boards/{id}/cards/{card_id}`,
+  `PATCH /api/boards/{id}/cards/{card_id}/move`,
+  `POST /api/boards/{id}/ai/chat`. The old `/api/board...` routes were removed.
+
+### Completion evidence
+
+- Backend: 91 tests passed; statement coverage 99% (`database.py` 99%,
+  `main.py` 99%, `passwords.py` 100%). Covers registration validation,
+  duplicate usernames, session revocation, account deletion cascade, board
+  CRUD, cross-user and cross-board isolation for every route, the v1-to-v2
+  migration with a real v1 fixture, and AI operations with the new fields.
+- Frontend: 67 unit tests passed using an in-memory fake backend
+  (`src/test/fake-api.ts`); lint, type-check, and static build passed.
+  Coverage is not measured (no Vitest coverage provider installed).
+- E2E: 18 Playwright tests passed against FastAPI with a temporary database,
+  and all 18 passed again against the Docker image. They caught a real bug
+  (sign-out after registering showed the registration form), now fixed with a
+  unit test.
+- Migration was verified on a copy of the live `pm-mvp-data` volume (version 1,
+  one board, 9 cards): after upgrade the board and all cards were present and
+  `user` / `password` still signed in. Test accounts created by the Docker e2e
+  run were deleted by the tests.
+- Node 25 exposes a method-less global `localStorage` that shadows jsdom's; the
+  test setup installs a working Storage. The app already tolerates storage
+  failures.
+
+### Backlog for later iterations
+
+- Card comments or an activity history.
+- Labels and checklists on cards.
+- Overview page across boards (counts per column, overdue cards).
+- Persisted sessions and login rate limiting.
+
 ## Assumptions for user review
 
 - The login is a local MVP gate, not production authentication; use a backend-validated HTTP-only session cookie so protected API routes cannot rely on client-only state.

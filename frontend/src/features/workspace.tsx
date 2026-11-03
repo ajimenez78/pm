@@ -6,21 +6,103 @@ import {
   LayoutDashboard,
   Lightbulb,
   LogOut,
+  Plus,
   Sparkles,
+  UserRound,
 } from "lucide-react";
+import { useState } from "react";
+import { AccountSettings } from "@/features/auth/account-settings";
 import { Board } from "@/features/board/board";
+import { NewBoardForm } from "@/features/board/new-board-form";
+import { useBoards } from "@/features/board/use-boards";
 
 type WorkspaceProps = {
+  username: string;
   isSigningOut: boolean;
   onSignOut: () => Promise<void>;
+  onAccountDeleted: () => void;
   signOutError: string;
 };
 
+type View = "boards" | "account";
+
 export function Workspace({
+  username,
   isSigningOut,
   onSignOut,
+  onAccountDeleted,
   signOutError,
 }: WorkspaceProps) {
+  const {
+    boards,
+    selectedId,
+    status,
+    error,
+    retry,
+    refresh,
+    selectBoard,
+    createBoard,
+    deleteBoard,
+  } = useBoards();
+  const [view, setView] = useState<View>("boards");
+  const [isCreating, setIsCreating] = useState(false);
+  const selectedBoard = boards.find((board) => board.id === selectedId);
+
+  async function handleCreate(title: string, description: string) {
+    const created = await createBoard(title, description);
+    if (created) {
+      setIsCreating(false);
+      setView("boards");
+    }
+    return created;
+  }
+
+  function renderBoards() {
+    if (status === "loading") {
+      return <p role="status">Loading your boards...</p>;
+    }
+    if (status === "error") {
+      return (
+        <section className="board-panel">
+          <p role="alert">{error}</p>
+          <button className="button button-primary" onClick={retry} type="button">
+            Try again
+          </button>
+        </section>
+      );
+    }
+    return (
+      <>
+        {error && (
+          <p className="board-error" role="alert">
+            {error}
+          </p>
+        )}
+        {(isCreating || !selectedId) && (
+          <section aria-label="Create a board" className="board-panel new-board-panel">
+            {!selectedId && (
+              <p className="board-subtitle">
+                You have no boards yet. Create one to get started.
+              </p>
+            )}
+            <NewBoardForm
+              onCancel={selectedId ? () => setIsCreating(false) : undefined}
+              onCreate={handleCreate}
+            />
+          </section>
+        )}
+        {selectedId && (
+          <Board
+            boardId={selectedId}
+            key={selectedId}
+            onChange={refresh}
+            onDelete={() => deleteBoard(selectedId)}
+          />
+        )}
+      </>
+    );
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -42,17 +124,31 @@ export function Workspace({
           </span>
           <span className="workspace-copy">
             <span className="sidebar-overline">WORKSPACE</span>
-            <strong>Studio North</strong>
+            <strong>{username}</strong>
           </span>
         </div>
 
         <nav aria-label="Workspace navigation" className="sidebar-navigation">
           <span className="sidebar-overline">YOUR SPACE</span>
-          <a aria-current="page" className="nav-link" href="#board">
+          <button
+            aria-current={view === "boards" ? "page" : undefined}
+            className="nav-link"
+            onClick={() => setView("boards")}
+            type="button"
+          >
             <LayoutDashboard aria-hidden="true" size={18} />
-            <span>Project board</span>
-            <span aria-hidden="true" className="nav-active-mark" />
-          </a>
+            <span>Boards</span>
+            <span className="nav-count">{boards.length}</span>
+          </button>
+          <button
+            aria-current={view === "account" ? "page" : undefined}
+            className="nav-link"
+            onClick={() => setView("account")}
+            type="button"
+          >
+            <UserRound aria-hidden="true" size={18} />
+            <span>Account</span>
+          </button>
         </nav>
 
         <div className="sidebar-bottom">
@@ -77,14 +173,60 @@ export function Workspace({
       <div className="main-area">
         <header className="topbar">
           <div aria-label="Breadcrumb" className="breadcrumbs">
-            <span>Studio North</span>
+            <span>{username}</span>
             <ChevronRight aria-hidden="true" size={15} />
-            <strong>Project board</strong>
+            <strong>
+              {view === "account"
+                ? "Account"
+                : (selectedBoard?.title ?? "Boards")}
+            </strong>
           </div>
           <div className="topbar-actions">
-            <span className="topbar-caption">
-              A clearer view of what matters
-            </span>
+            {view === "boards" && boards.length > 0 && (
+              <label className="board-switcher">
+                <span className="sr-only">Current board</span>
+                <select
+                  onChange={(event) => selectBoard(event.target.value)}
+                  value={selectedId ?? ""}
+                >
+                  {boards.map((board) => (
+                    <option key={board.id} value={board.id}>
+                      {board.title} ({board.card_count})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {view === "boards" && status === "ready" && (
+              <button
+                className="sign-out-button"
+                onClick={() => setIsCreating(true)}
+                type="button"
+              >
+                <Plus aria-hidden="true" size={15} />
+                New board
+              </button>
+            )}
+            {view === "account" && (
+              <button
+                className="sign-out-button mobile-nav-button"
+                onClick={() => setView("boards")}
+                type="button"
+              >
+                <LayoutDashboard aria-hidden="true" size={15} />
+                Back to boards
+              </button>
+            )}
+            {view === "boards" && (
+              <button
+                aria-label="Account settings"
+                className="sign-out-button mobile-nav-button"
+                onClick={() => setView("account")}
+                type="button"
+              >
+                <UserRound aria-hidden="true" size={15} />
+              </button>
+            )}
             {signOutError && (
               <p className="auth-error" role="alert">
                 {signOutError}
@@ -117,7 +259,14 @@ export function Workspace({
           </section>
 
           <div className="board-anchor" id="board">
-            <Board />
+            {view === "account" ? (
+              <AccountSettings
+                onAccountDeleted={onAccountDeleted}
+                username={username}
+              />
+            ) : (
+              renderBoards()
+            )}
           </div>
 
           <footer className="page-footer">
