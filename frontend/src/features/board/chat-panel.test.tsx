@@ -1,8 +1,26 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatPanel } from "./chat-panel";
-import type { BoardData } from "./board-data";
+import type { BoardData, ChatMessage } from "./board-data";
+
+type HarnessProps = {
+  onBoardUpdate: (board: BoardData) => void;
+  onClose: () => void;
+};
+
+function ChatPanelHarness({ onBoardUpdate, onClose }: HarnessProps) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  return (
+    <ChatPanel
+      messages={messages}
+      onBoardUpdate={onBoardUpdate}
+      onClose={onClose}
+      onMessagesChange={setMessages}
+    />
+  );
+}
 
 const fetchMock = vi.fn<typeof fetch>();
 const board: BoardData = {
@@ -30,7 +48,7 @@ describe("ChatPanel", () => {
     const onBoardUpdate = vi.fn();
     const user = userEvent.setup();
 
-    render(<ChatPanel onBoardUpdate={onBoardUpdate} onClose={vi.fn()} />);
+    render(<ChatPanelHarness onBoardUpdate={onBoardUpdate} onClose={vi.fn()} />);
 
     const input = screen.getByRole("textbox", {
       name: "Message the AI assistant",
@@ -54,7 +72,7 @@ describe("ChatPanel", () => {
     );
     const user = userEvent.setup();
 
-    render(<ChatPanel onBoardUpdate={vi.fn()} onClose={vi.fn()} />);
+    render(<ChatPanelHarness onBoardUpdate={vi.fn()} onClose={vi.fn()} />);
 
     await user.type(
       screen.getByRole("textbox", { name: "Message the AI assistant" }),
@@ -93,7 +111,7 @@ describe("ChatPanel", () => {
       );
     const user = userEvent.setup();
 
-    render(<ChatPanel onBoardUpdate={vi.fn()} onClose={vi.fn()} />);
+    render(<ChatPanelHarness onBoardUpdate={vi.fn()} onClose={vi.fn()} />);
 
     const input = screen.getByRole("textbox", {
       name: "Message the AI assistant",
@@ -124,7 +142,7 @@ describe("ChatPanel", () => {
     const onClose = vi.fn();
     const user = userEvent.setup();
 
-    render(<ChatPanel onBoardUpdate={vi.fn()} onClose={onClose} />);
+    render(<ChatPanelHarness onBoardUpdate={vi.fn()} onClose={onClose} />);
 
     const input = screen.getByRole("textbox", {
       name: "Message the AI assistant",

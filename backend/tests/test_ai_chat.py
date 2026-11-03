@@ -27,8 +27,16 @@ def _mock_openai(
             return SimpleNamespace(output_parsed=text_format.model_validate(output))
 
     class FakeOpenAI:
-        def __init__(self, *, api_key: str) -> None:
+        def __init__(
+            self,
+            *,
+            api_key: str,
+            timeout: float,
+            max_retries: int,
+        ) -> None:
             assert api_key == "test-openai-key"
+            assert timeout == main.OPENAI_TIMEOUT_SECONDS
+            assert max_retries == main.OPENAI_MAX_RETRIES
             self.responses = FakeResponses()
 
         def __enter__(self) -> "FakeOpenAI":

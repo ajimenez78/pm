@@ -26,6 +26,8 @@ MVP_PASSWORD = "password"
 SESSION_COOKIE = "pm_session"
 SESSION_MAX_AGE = 60 * 60 * 12
 OPENAI_MODEL = "gpt-6-luna"
+OPENAI_TIMEOUT_SECONDS = 60
+OPENAI_MAX_RETRIES = 1
 EXAMPLE_PAGE = """<!doctype html>
 <html lang="en">
   <head>
@@ -226,7 +228,11 @@ def create_app(
             )
 
         try:
-            with OpenAI(api_key=api_key) as client:
+            with OpenAI(
+                api_key=api_key,
+                timeout=OPENAI_TIMEOUT_SECONDS,
+                max_retries=OPENAI_MAX_RETRIES,
+            ) as client:
                 response = client.responses.create(
                     model=OPENAI_MODEL,
                     input="What is 2+2?",
@@ -279,7 +285,11 @@ def create_app(
         ]
 
         try:
-            with OpenAI(api_key=api_key) as client:
+            with OpenAI(
+                api_key=api_key,
+                timeout=OPENAI_TIMEOUT_SECONDS,
+                max_retries=OPENAI_MAX_RETRIES,
+            ) as client:
                 provider_response = client.responses.parse(
                     model=OPENAI_MODEL,
                     input=model_input,

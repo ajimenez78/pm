@@ -135,6 +135,54 @@ describe("Board", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps the chat conversation when the assistant is closed and reopened", async () => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input) === "/api/ai/chat" && init?.method === "POST") {
+        return Response.json({
+          reply: "Two cards are in progress.",
+          changed: false,
+          board,
+        });
+      }
+      return Response.json(board);
+    });
+    const user = userEvent.setup();
+
+    render(<Board />);
+
+    await screen.findByRole("heading", { name: "Product launch" });
+    await user.click(screen.getByRole("button", { name: "Open AI assistant" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Message the AI assistant" }),
+      "What is in progress?",
+    );
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByText("Two cards are in progress.");
+
+    await user.click(screen.getByRole("button", { name: "Close chat" }));
+    expect(screen.queryByText("Two cards are in progress.")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open AI assistant" }));
+
+    expect(screen.getByText("What is in progress?")).toBeInTheDocument();
+    expect(screen.getByText("Two cards are in progress.")).toBeInTheDocument();
+  });
+
+  it("limits column names to the backend maximum length", async () => {
+    installBoardApiMock();
+    const user = userEvent.setup();
+    render(<Board />);
+
+    await screen.findByRole("heading", { name: "Product launch" });
+    await user.click(
+      screen.getByRole("button", { name: "Rename Backlog column" }),
+    );
+
+    expect(
+      screen.getByRole("textbox", { name: "Column name" }),
+    ).toHaveAttribute("maxLength", "80");
+  });
+
   it("saves a column rename through the API", async () => {
     installBoardApiMock();
     const user = userEvent.setup();

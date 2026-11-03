@@ -32,7 +32,7 @@ import {
 } from "lucide-react";
 import { useRef, useState, type FormEvent } from "react";
 import { AddCardForm } from "./add-card-form";
-import type { BoardColumn } from "./board-data";
+import type { BoardColumn, ChatMessage } from "./board-data";
 import { Card } from "./card";
 import { ChatPanel } from "./chat-panel";
 import { useBoard } from "./use-board";
@@ -95,6 +95,7 @@ function BoardColumnView({
               autoFocus
               id={`column-name-${column.id}`}
               aria-label="Column name"
+              maxLength={80}
               onChange={(event) => setColumnName(event.target.value)}
               required
               value={columnName}
@@ -206,6 +207,7 @@ export function Board() {
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const assistantButtonRef = useRef<HTMLButtonElement>(null);
   const columns = board?.columns ?? [];
   const sensors = useSensors(
@@ -412,7 +414,9 @@ export function Board() {
       </DndContext>
       {isChatOpen && (
         <ChatPanel
+          messages={chatMessages}
           onBoardUpdate={applyBoardUpdate}
+          onMessagesChange={setChatMessages}
           onClose={closeChat}
         />
       )}

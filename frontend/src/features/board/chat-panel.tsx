@@ -5,19 +5,27 @@ import {
   useEffect,
   useRef,
   useState,
+  type Dispatch,
   type FormEvent,
   type KeyboardEvent,
+  type SetStateAction,
 } from "react";
 import { sendChatMessage } from "./board-api";
 import type { BoardData, ChatMessage } from "./board-data";
 
 type ChatPanelProps = {
+  messages: ChatMessage[];
+  onMessagesChange: Dispatch<SetStateAction<ChatMessage[]>>;
   onBoardUpdate: (board: BoardData) => void;
   onClose: () => void;
 };
 
-export function ChatPanel({ onBoardUpdate, onClose }: ChatPanelProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+export function ChatPanel({
+  messages,
+  onMessagesChange,
+  onBoardUpdate,
+  onClose,
+}: ChatPanelProps) {
   const [question, setQuestion] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
@@ -38,7 +46,7 @@ export function ChatPanel({ onBoardUpdate, onClose }: ChatPanelProps) {
     setError("");
     try {
       const response = await sendChatMessage(trimmedQuestion, messages.slice(-20));
-      setMessages((currentMessages) => [
+      onMessagesChange((currentMessages) => [
         ...currentMessages,
         { role: "user", content: trimmedQuestion },
         { role: "assistant", content: response.reply },

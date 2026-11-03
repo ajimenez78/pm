@@ -30,8 +30,16 @@ def test_connectivity_check_returns_model_answer_without_exposing_key(
             return SimpleNamespace(output_text="4")
 
     class FakeOpenAI:
-        def __init__(self, *, api_key: str) -> None:
+        def __init__(
+            self,
+            *,
+            api_key: str,
+            timeout: float,
+            max_retries: int,
+        ) -> None:
             captured["api_key"] = api_key
+            captured["timeout"] = timeout
+            captured["max_retries"] = max_retries
             self.responses = FakeResponses()
 
         def __enter__(self) -> "FakeOpenAI":
@@ -50,6 +58,8 @@ def test_connectivity_check_returns_model_answer_without_exposing_key(
     assert api_key not in response.text
     assert captured == {
         "api_key": api_key,
+        "timeout": main.OPENAI_TIMEOUT_SECONDS,
+        "max_retries": main.OPENAI_MAX_RETRIES,
         "model": "gpt-6-luna",
         "input": "What is 2+2?",
     }
@@ -87,7 +97,7 @@ def test_connectivity_check_hides_provider_error_details(
             raise FakeProviderError(f"provider rejected {api_key}")
 
     class FakeOpenAI:
-        def __init__(self, *, api_key: str) -> None:
+        def __init__(self, **_: object) -> None:
             self.responses = FakeResponses()
 
         def __enter__(self) -> "FakeOpenAI":
