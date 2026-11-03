@@ -109,9 +109,7 @@ export function Workspace({
               A GOOD DAY TO MAKE PROGRESS
             </p>
             <h1 id="welcome-title">
-              Make good ideas
-              <br />
-              <span>happen.</span>
+              Make good ideas <span>happen.</span>
             </h1>
             <p className="welcome-description">
               Bring the next big thing to life, one thoughtful step at a time.

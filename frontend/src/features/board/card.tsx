@@ -103,16 +103,21 @@ export function Card({ card, onDelete, onEdit }: CardProps) {
           )}
           <div className="form-actions">
             <button
-              className="button button-quiet"
+              aria-label="Cancel editing"
+              className="icon-button icon-button-outline"
               onClick={handleCancel}
+              title="Cancel"
               type="button"
             >
-              <X aria-hidden="true" size={15} />
-              Cancel
+              <X aria-hidden="true" size={16} />
             </button>
-            <button className="button button-primary" type="submit">
-              <Check aria-hidden="true" size={15} />
-              Save card
+            <button
+              aria-label="Save card"
+              className="icon-button icon-button-primary"
+              title="Save card"
+              type="submit"
+            >
+              <Check aria-hidden="true" size={16} />
             </button>
           </div>
         </form>
@@ -134,6 +139,7 @@ export function Card({ card, onDelete, onEdit }: CardProps) {
                 className="icon-button edit-card"
                 aria-label={`Edit card: ${card.title}`}
                 onClick={startEditing}
+                title="Edit card"
                 type="button"
               >
                 <Pencil aria-hidden="true" size={14} />
@@ -142,6 +148,7 @@ export function Card({ card, onDelete, onEdit }: CardProps) {
                 className="icon-button delete-card"
                 aria-label={`Delete card: ${card.title}`}
                 onClick={() => onDelete(card.id)}
+                title="Delete card"
                 type="button"
               >
                 <Trash2 aria-hidden="true" size={15} />

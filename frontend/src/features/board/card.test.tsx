@@ -83,4 +83,31 @@ describe("Card", () => {
       "Updated by AI",
     );
   });
+
+  it("cancels editing with the icon button without saving", async () => {
+    const user = userEvent.setup();
+    const onEdit = vi.fn();
+    render(
+      <DndContext>
+        <Card
+          card={{
+            id: "card-1",
+            column_id: "backlog",
+            title: "Plan launch",
+            details: "",
+            position: 0,
+          }}
+          onDelete={vi.fn()}
+          onEdit={onEdit}
+        />
+      </DndContext>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit card: Plan launch" }));
+    await user.type(screen.getByRole("textbox", { name: "Card title" }), " now");
+    await user.click(screen.getByRole("button", { name: "Cancel editing" }));
+
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "Plan launch" })).toBeInTheDocument();
+  });
 });

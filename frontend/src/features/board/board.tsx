@@ -355,71 +355,73 @@ export function Board() {
       </div>
       {error && <p className="board-error" role="alert">{error}</p>}
 
-      <DndContext
-        collisionDetection={collisionDetection}
-        id="kanban-board"
-        onDragCancel={handleDragCancel}
-        onDragEnd={handleDragEnd}
-        onDragOver={handleDragOver}
-        onDragStart={handleDragStart}
-        sensors={sensors}
-      >
-        <div className="board-scroll">
-          <div aria-label="Project board" className="board-columns" role="region">
-            {columns.map((column) => (
-              <BoardColumnView
-                column={column}
-                isDragging={activeCardId !== null}
-                isEditing={editingColumnId === column.id}
-                isDropTarget={overColumnId === column.id}
-                key={column.id}
-                onAdd={(title, details) =>
-                  addCard(column.id, title, details)
-                }
-                onDelete={deleteCard}
-                onUpdate={updateCard}
-                onEdit={() =>
-                  setEditingColumnId((current) =>
-                    current === column.id ? null : column.id,
-                  )
-                }
-                onRename={async (title) => {
-                  const saved = await renameColumn(column.id, title);
-                  if (saved) {
-                    setEditingColumnId(null);
+      <div className={`board-body${isChatOpen ? " board-body-chat-open" : ""}`}>
+        <DndContext
+          collisionDetection={collisionDetection}
+          id="kanban-board"
+          onDragCancel={handleDragCancel}
+          onDragEnd={handleDragEnd}
+          onDragOver={handleDragOver}
+          onDragStart={handleDragStart}
+          sensors={sensors}
+        >
+          <div className="board-scroll">
+            <div aria-label="Project board" className="board-columns" role="region">
+              {columns.map((column) => (
+                <BoardColumnView
+                  column={column}
+                  isDragging={activeCardId !== null}
+                  isEditing={editingColumnId === column.id}
+                  isDropTarget={overColumnId === column.id}
+                  key={column.id}
+                  onAdd={(title, details) =>
+                    addCard(column.id, title, details)
                   }
-                  return saved;
-                }}
-              />
-            ))}
+                  onDelete={deleteCard}
+                  onUpdate={updateCard}
+                  onEdit={() =>
+                    setEditingColumnId((current) =>
+                      current === column.id ? null : column.id,
+                    )
+                  }
+                  onRename={async (title) => {
+                    const saved = await renameColumn(column.id, title);
+                    if (saved) {
+                      setEditingColumnId(null);
+                    }
+                    return saved;
+                  }}
+                />
+              ))}
+            </div>
           </div>
-        </div>
-        <DragOverlay dropAnimation={{ duration: 180, easing: "ease-out" }}>
-          {activeCard && (
-            <article
-              aria-label={`Dragging card: ${activeCard.title}`}
-              className="task-card task-card-preview"
-              role="region"
-            >
-              <span aria-hidden="true" className="drag-preview-handle">
-                <GripVertical size={15} />
-              </span>
-              <h3 className="task-card-title">{activeCard.title}</h3>
-              {activeCard.details && (
-                <p className="task-card-details">{activeCard.details}</p>
-              )}
-            </article>
-          )}
-        </DragOverlay>
-      </DndContext>
-      {isChatOpen && (
-        <ChatPanel
-          messages={chatMessages}
-          onBoardUpdate={applyBoardUpdate}
-          onMessagesChange={setChatMessages}
-          onClose={closeChat}
-        />
-      )}
+          <DragOverlay dropAnimation={{ duration: 180, easing: "ease-out" }}>
+            {activeCard && (
+              <article
+                aria-label={`Dragging card: ${activeCard.title}`}
+                className="task-card task-card-preview"
+                role="region"
+              >
+                <span aria-hidden="true" className="drag-preview-handle">
+                  <GripVertical size={15} />
+                </span>
+                <h3 className="task-card-title">{activeCard.title}</h3>
+                {activeCard.details && (
+                  <p className="task-card-details">{activeCard.details}</p>
+                )}
+              </article>
+            )}
+          </DragOverlay>
+        </DndContext>
+        {isChatOpen && (
+          <ChatPanel
+            messages={chatMessages}
+            onBoardUpdate={applyBoardUpdate}
+            onMessagesChange={setChatMessages}
+            onClose={closeChat}
+          />
+        )}
+      </div>
     </section>
   );
 }
