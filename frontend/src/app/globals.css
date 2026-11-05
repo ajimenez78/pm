@@ -196,13 +196,6 @@ a {
   color: var(--blue-primary);
 }
 
-.nav-active-mark {
-  width: 6px;
-  height: 6px;
-  margin-left: auto;
-  border-radius: 50%;
-  background: var(--accent-yellow);
-}
 
 .sidebar-bottom {
   display: grid;
@@ -300,17 +293,7 @@ a {
   font-weight: 650;
 }
 
-.topbar-caption {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: #8a96a5;
-  font-size: 11px;
-}
 
-.topbar-caption svg {
-  color: var(--blue-primary);
-}
 
 .topbar-actions {
   display: flex;
@@ -1622,9 +1605,6 @@ button.nav-link {
     padding: 0 17px;
   }
 
-  .topbar-caption {
-    display: none;
-  }
 
   .topbar-actions {
     flex-wrap: wrap;

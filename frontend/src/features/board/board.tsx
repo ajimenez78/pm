@@ -78,6 +78,11 @@ function BoardColumnView({
   const [isAdding, setIsAdding] = useState(false);
   const [columnName, setColumnName] = useState(column.title);
 
+  function toggleEditing() {
+    setColumnName(column.title);
+    onEdit();
+  }
+
   async function handleRename(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedName = columnName.trim();
@@ -118,10 +123,7 @@ function BoardColumnView({
             <button
               className="icon-button cancel-column-name"
               aria-label="Cancel column rename"
-              onClick={() => {
-                setColumnName(column.title);
-                onEdit();
-              }}
+              onClick={toggleEditing}
               type="button"
             >
               <X aria-hidden="true" size={16} />
@@ -137,10 +139,7 @@ function BoardColumnView({
             <button
               className="icon-button rename-column"
               aria-label={`Rename ${column.title} column`}
-              onClick={() => {
-                setColumnName(column.title);
-                onEdit();
-              }}
+              onClick={toggleEditing}
               type="button"
             >
               <Pencil aria-hidden="true" size={14} />
@@ -212,10 +211,12 @@ function matchesFilters(
 ): boolean {
   const text = `${card.title} ${card.details}`.toLowerCase();
   return (
-    text.includes(query.trim().toLowerCase()) &&
-    (priority === "all" || card.priority === priority)
+    text.includes(query) && (priority === "all" || card.priority === priority)
   );
 }
+
+const collisionDetection: CollisionDetection = (args) =>
+  args.pointerCoordinates ? pointerWithin(args) : closestCorners(args);
 
 type BoardDetailsFormProps = {
   title: string;
@@ -310,12 +311,13 @@ export function Board({ boardId, onChange, onDelete }: BoardProps) {
     (total, column) => total + column.cards.length,
     0,
   );
-  const isFiltering = query.trim() !== "" || priorityFilter !== "all";
+  const normalizedQuery = query.trim().toLowerCase();
+  const isFiltering = normalizedQuery !== "" || priorityFilter !== "all";
   const visibleCards = Object.fromEntries(
     columns.map((column) => [
       column.id,
       column.cards.filter((card) =>
-        matchesFilters(card, query, priorityFilter),
+        matchesFilters(card, normalizedQuery, priorityFilter),
       ),
     ]),
   );
@@ -332,14 +334,6 @@ export function Board({ boardId, onChange, onDelete }: BoardProps) {
       await onDelete();
     }
   }
-
-  const collisionDetection: CollisionDetection = (args) => {
-    if (args.pointerCoordinates) {
-      return pointerWithin(args);
-    }
-
-    return closestCorners(args);
-  };
 
   function getColumnIdForTarget(targetId: string): string | null {
     const column = columns.find(
@@ -364,38 +358,35 @@ export function Board({ boardId, onChange, onDelete }: BoardProps) {
     setOverColumnId(over ? getColumnIdForTarget(over.id.toString()) : null);
   }
 
-  function handleDragEnd({ active, over }: DragEndEvent) {
-    const destinationId = over
-      ? getColumnIdForTarget(over.id.toString())
-      : null;
-
-    if (destinationId) {
-      const cardId = active.id.toString();
-      const destination = columns.find((column) => column.id === destinationId);
-      const source = columns.find((column) =>
-        column.cards.some((card) => card.id === cardId),
-      );
-      if (destination && source) {
-        const targetId = over?.id.toString();
-        const targetIndex = destination.cards.findIndex(
-          (card) => card.id === targetId,
-        );
-        const sameColumn = source.id === destination.id;
-        const appendedPosition =
-          destination.cards.length - Number(sameColumn);
-        const targetPosition =
-          targetIndex < 0 ? appendedPosition : targetIndex;
-        void moveCard(cardId, destinationId, targetPosition);
-      }
-    }
-
+  function resetDrag() {
     setActiveCardId(null);
     setOverColumnId(null);
   }
 
-  function handleDragCancel() {
-    setActiveCardId(null);
-    setOverColumnId(null);
+  function handleDragEnd({ active, over }: DragEndEvent) {
+    resetDrag();
+    if (!over) {
+      return;
+    }
+
+    const cardId = active.id.toString();
+    const targetId = over.id.toString();
+    const destinationId = getColumnIdForTarget(targetId);
+    const destination = columns.find((column) => column.id === destinationId);
+    const source = columns.find((column) =>
+      column.cards.some((card) => card.id === cardId),
+    );
+    if (!destination || !source) {
+      return;
+    }
+
+    const targetIndex = destination.cards.findIndex(
+      (card) => card.id === targetId,
+    );
+    const sameColumn = source.id === destination.id;
+    const appendedPosition = destination.cards.length - Number(sameColumn);
+    const targetPosition = targetIndex < 0 ? appendedPosition : targetIndex;
+    void moveCard(cardId, destination.id, targetPosition);
   }
 
   function closeChat() {
@@ -403,26 +394,24 @@ export function Board({ boardId, onChange, onDelete }: BoardProps) {
     assistantButtonRef.current?.focus();
   }
 
-  if (status === "loading") {
-    return (
-      <section
-        aria-labelledby="board-title"
-        className="board-panel"
-      >
-        <h2 id="board-title">Project board</h2>
-        <p role="status">Loading your board...</p>
-      </section>
-    );
-  }
-
-  if (status === "error" || !board) {
+  if (status !== "ready" || !board) {
     return (
       <section aria-labelledby="board-title" className="board-panel">
         <h2 id="board-title">Project board</h2>
-        <p role="alert">{error}</p>
-        <button className="button button-primary" onClick={retry} type="button">
-          Try again
-        </button>
+        {status === "loading" ? (
+          <p role="status">Loading your board...</p>
+        ) : (
+          <>
+            <p role="alert">{error}</p>
+            <button
+              className="button button-primary"
+              onClick={retry}
+              type="button"
+            >
+              Try again
+            </button>
+          </>
+        )}
       </section>
     );
   }
@@ -542,7 +531,7 @@ export function Board({ boardId, onChange, onDelete }: BoardProps) {
         <DndContext
           collisionDetection={collisionDetection}
           id="kanban-board"
-          onDragCancel={handleDragCancel}
+          onDragCancel={resetDrag}
           onDragEnd={handleDragEnd}
           onDragOver={handleDragOver}
           onDragStart={handleDragStart}

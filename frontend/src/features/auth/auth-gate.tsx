@@ -9,6 +9,16 @@ import { getSession, login, logout, register } from "./auth-api";
 type AuthStatus = "checking" | "signed-out" | "signed-in" | "unavailable";
 type Mode = "sign-in" | "register";
 
+function submitErrorMessage(mode: Mode, error: unknown): string {
+  if (mode === "register") {
+    return errorMessage(error, "Unable to create the account.");
+  }
+  if (error instanceof ApiError && error.status === 401) {
+    return "Invalid username or password.";
+  }
+  return "Unable to sign in. Please try again.";
+}
+
 export function AuthGate() {
   const [status, setStatus] = useState<AuthStatus>("checking");
   const [mode, setMode] = useState<Mode>("sign-in");
@@ -59,28 +69,21 @@ export function AuthGate() {
     setIsSubmitting(true);
 
     try {
-      const session =
-        mode === "sign-in"
-          ? await login(username, password)
-          : await register(username, password);
+      const authenticate = mode === "sign-in" ? login : register;
+      const session = await authenticate(username, password);
       setPassword("");
       setAccount(session.username);
       setStatus("signed-in");
     } catch (error) {
-      if (mode === "sign-in" && error instanceof ApiError && error.status === 401) {
-        setAuthError("Invalid username or password.");
-      } else if (mode === "register" && error instanceof ApiError && error.status === 409) {
-        setAuthError(error.message);
-      } else {
-        setAuthError(
-          mode === "sign-in"
-            ? "Unable to sign in. Please try again."
-            : errorMessage(error, "Unable to create the account."),
-        );
-      }
+      setAuthError(submitErrorMessage(mode, error));
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  function showSignIn() {
+    setMode("sign-in");
+    setStatus("signed-out");
   }
 
   async function handleSignOut() {
@@ -89,8 +92,7 @@ export function AuthGate() {
 
     try {
       await logout();
-      setMode("sign-in");
-      setStatus("signed-out");
+      showSignIn();
     } catch {
       setSignOutError("Unable to sign out. Please try again.");
     } finally {
@@ -132,10 +134,7 @@ export function AuthGate() {
     return (
       <Workspace
         isSigningOut={isSigningOut}
-        onAccountDeleted={() => {
-          setMode("sign-in");
-          setStatus("signed-out");
-        }}
+        onAccountDeleted={showSignIn}
         onSignOut={handleSignOut}
         signOutError={signOutError}
         username={account}
@@ -145,6 +144,7 @@ export function AuthGate() {
 
   const isSignIn = mode === "sign-in";
   const title = isSignIn ? "Sign in" : "Create account";
+  const pendingLabel = isSignIn ? "Signing in..." : "Creating account...";
 
   return (
     <main className="auth-page">
@@ -196,11 +196,7 @@ export function AuthGate() {
             </p>
           )}
           <button className="auth-submit" disabled={isSubmitting} type="submit">
-            {isSubmitting
-              ? isSignIn
-                ? "Signing in..."
-                : "Creating account..."
-              : title}
+            {isSubmitting ? pendingLabel : title}
           </button>
         </form>
         <p className="auth-note">

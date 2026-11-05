@@ -15,11 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from openai import OpenAI, OpenAIError
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
-from app.database import (
-    Database,
-    InvalidBoardOperation,
-    InvalidCardPosition,
-)
+from app.database import Database, InvalidBoardOperation, InvalidCardPosition
 from app.passwords import hash_password, verify_password
 
 SESSION_COOKIE = "pm_session"
@@ -227,6 +223,17 @@ def _not_found(resource: str) -> HTTPException:
     return HTTPException(status_code=404, detail=f"{resource} not found")
 
 
+def _require_password(
+    database: Database,
+    user_id: str,
+    password: str,
+    detail: str,
+) -> None:
+    current_hash = database.get_password_hash(user_id) or ""
+    if not verify_password(password, current_hash):
+        raise HTTPException(status_code=403, detail=detail)
+
+
 def _start_session(request: Request, response: Response, user_id: str) -> None:
     session_id = secrets.token_urlsafe(32)
     request.app.state.sessions[session_id] = (
@@ -272,6 +279,18 @@ def _openai_client() -> OpenAI:
         timeout=OPENAI_TIMEOUT_SECONDS,
         max_retries=OPENAI_MAX_RETRIES,
     )
+
+
+def _frontend_directory() -> Path:
+    configured_directory = os.environ.get("FRONTEND_BUILD_DIR")
+    if not configured_directory:
+        return Path(__file__).resolve().parents[2] / "frontend" / "out"
+    directory = Path(configured_directory)
+    if not directory.is_dir():
+        raise FileNotFoundError(
+            f"Frontend build directory does not exist: {directory}",
+        )
+    return directory
 
 
 def create_app(
@@ -374,12 +393,12 @@ def create_app(
         database: DatabaseDep,
     ) -> dict[str, str]:
         """Change the password and sign out the user's other sessions."""
-        current_hash = database.get_password_hash(user_id) or ""
-        if not verify_password(payload.current_password, current_hash):
-            raise HTTPException(
-                status_code=403,
-                detail="Current password is incorrect",
-            )
+        _require_password(
+            database,
+            user_id,
+            payload.current_password,
+            "Current password is incorrect",
+        )
         database.set_password_hash(user_id, hash_password(payload.new_password))
         _revoke_sessions(
             request,
@@ -397,9 +416,12 @@ def create_app(
         database: DatabaseDep,
     ) -> dict[str, str]:
         """Permanently delete the account, its boards, and its sessions."""
-        current_hash = database.get_password_hash(user_id) or ""
-        if not verify_password(payload.password, current_hash):
-            raise HTTPException(status_code=403, detail="Password is incorrect")
+        _require_password(
+            database,
+            user_id,
+            payload.password,
+            "Password is incorrect",
+        )
         database.delete_user(user_id)
         _revoke_sessions(request, user_id)
         _clear_session_cookie(response)
@@ -649,7 +671,11 @@ def create_app(
             operation.model_dump(mode="json") for operation in result.operations
         ]
         try:
-            database.apply_board_operations(user_id, board_id, operations)
+            updated_board = database.apply_board_operations(
+                user_id,
+                board_id,
+                operations,
+            )
         except InvalidBoardOperation as error:
             raise HTTPException(
                 status_code=422,
@@ -661,31 +687,13 @@ def create_app(
                 detail="AI operation position is outside the column",
             ) from error
 
-        updated_board = database.get_board(user_id, board_id)
-        if updated_board is None:
-            raise _not_found("Board")
         return {
             "reply": result.reply,
             "changed": bool(operations),
             "board": updated_board,
         }
 
-    if frontend_build_dir is not None:
-        static_directory = frontend_build_dir
-    else:
-        configured_directory = os.environ.get("FRONTEND_BUILD_DIR")
-        if configured_directory:
-            static_directory = Path(configured_directory)
-            if not static_directory.is_dir():
-                raise FileNotFoundError(
-                    "Frontend build directory does not exist: "
-                    f"{static_directory}",
-                )
-        else:
-            static_directory = (
-                Path(__file__).resolve().parents[2] / "frontend" / "out"
-            )
-
+    static_directory = frontend_build_dir or _frontend_directory()
     if static_directory.is_dir():
         application.mount(
             "/",

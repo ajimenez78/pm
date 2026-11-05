@@ -81,7 +81,7 @@ export function useBoards() {
     }
   }, []);
 
-  function selectBoard(boardId: string) {
+  function selectBoard(boardId: string | null) {
     setSelectedId(boardId);
     storeBoardId(boardId);
   }
@@ -114,9 +114,7 @@ export function useBoards() {
       await deleteBoardRequest(boardId);
       const remaining = await listBoards();
       setBoards(remaining);
-      const next = pickBoard(remaining, null);
-      setSelectedId(next);
-      storeBoardId(next);
+      selectBoard(pickBoard(remaining, null));
       return true;
     } catch (deleteError) {
       setError(errorMessage(deleteError, "Unable to delete the board."));

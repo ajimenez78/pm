@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.main import create_app
-from conftest import register
+from conftest import login, register
 
 pytestmark = pytest.mark.integration
 
@@ -375,10 +375,7 @@ def test_board_changes_survive_app_restart(
 
     with start() as first_client:
         register(first_client, "persist")
-        first_client.post(
-            "/api/auth/login",
-            json={"username": "persist", "password": "secret-pass"},
-        )
+        login(first_client, "persist", "secret-pass")
         board = first_client.post("/api/boards", json={"title": "Kept"}).json()
         first_client.post(
             f"/api/boards/{board['id']}/cards",
@@ -386,10 +383,7 @@ def test_board_changes_survive_app_restart(
         )
 
     with start() as second_client:
-        second_client.post(
-            "/api/auth/login",
-            json={"username": "persist", "password": "secret-pass"},
-        )
+        login(second_client, "persist", "secret-pass")
         restored = second_client.get(f"/api/boards/{board['id']}").json()
 
     assert restored["title"] == "Kept"

@@ -6,16 +6,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from conftest import register
+from conftest import login, register
 
 pytestmark = pytest.mark.integration
 
 
 def test_valid_credentials_create_a_session(client: TestClient) -> None:
-    response = client.post(
-        "/api/auth/login",
-        json={"username": "user", "password": "password"},
-    )
+    response = login(client)
 
     assert response.status_code == 200
     assert response.json() == {"username": "user"}
@@ -49,10 +46,7 @@ def test_expired_session_is_rejected(
 ) -> None:
     current_time = [1_000]
     monkeypatch.setattr(main, "time", lambda: current_time[0])
-    client.post(
-        "/api/auth/login",
-        json={"username": "user", "password": "password"},
-    )
+    login(client)
     current_time[0] += 12 * 60 * 60
 
     response = client.get("/api/auth/session")
@@ -97,12 +91,9 @@ def test_registration_signs_in_with_an_empty_starter_board(
     ]
 
     client.post("/api/auth/logout")
-    login = client.post(
-        "/api/auth/login",
-        json={"username": "ADA", "password": "analytical"},
-    )
-    assert login.status_code == 200
-    assert login.json() == {"username": "ada"}
+    response = login(client, "ADA", "analytical")
+    assert response.status_code == 200
+    assert response.json() == {"username": "ada"}
 
 
 def test_registration_rejects_a_taken_username_case_insensitively(
@@ -151,10 +142,7 @@ def test_password_change_revokes_other_sessions(
     signed_in_client: TestClient,
 ) -> None:
     other_device = TestClient(signed_in_client.app)
-    other_device.post(
-        "/api/auth/login",
-        json={"username": "user", "password": "password"},
-    )
+    login(other_device)
 
     response = signed_in_client.post(
         "/api/auth/password",
@@ -164,16 +152,8 @@ def test_password_change_revokes_other_sessions(
     assert response.status_code == 200
     assert signed_in_client.get("/api/auth/session").status_code == 200
     assert other_device.get("/api/auth/session").status_code == 401
-    old = other_device.post(
-        "/api/auth/login",
-        json={"username": "user", "password": "password"},
-    )
-    assert old.status_code == 401
-    new = other_device.post(
-        "/api/auth/login",
-        json={"username": "user", "password": "new-password"},
-    )
-    assert new.status_code == 200
+    assert login(other_device).status_code == 401
+    assert login(other_device, "user", "new-password").status_code == 200
 
 
 def test_account_deletion_requires_the_password(
@@ -194,10 +174,7 @@ def test_account_deletion_removes_data_and_all_sessions(
 ) -> None:
     owner = register(client, "leaving")
     second_device = TestClient(client.app)
-    second_device.post(
-        "/api/auth/login",
-        json={"username": "leaving", "password": "secret-pass"},
-    )
+    login(second_device, "leaving", "secret-pass")
     board_id = owner.get("/api/boards").json()[0]["id"]
 
     response = owner.post(
@@ -208,11 +185,7 @@ def test_account_deletion_removes_data_and_all_sessions(
     assert response.status_code == 200
     assert owner.get("/api/auth/session").status_code == 401
     assert second_device.get("/api/auth/session").status_code == 401
-    login = client.post(
-        "/api/auth/login",
-        json={"username": "leaving", "password": "secret-pass"},
-    )
-    assert login.status_code == 401
+    assert login(client, "leaving", "secret-pass").status_code == 401
     with closing(sqlite3.connect(database_path)) as connection:
         assert connection.execute(
             "SELECT count(*) FROM board_columns WHERE board_id = ?",

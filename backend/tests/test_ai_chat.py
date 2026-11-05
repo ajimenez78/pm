@@ -1,57 +1,17 @@
-from types import SimpleNamespace
-
 import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from conftest import register
+from conftest import forbid_openai, mock_openai, register
 
 pytestmark = pytest.mark.integration
-
-
-def _mock_openai(
-    monkeypatch: pytest.MonkeyPatch,
-    output: object,
-    calls: list[dict[str, object]],
-) -> None:
-    class FakeResponses:
-        def parse(self, **kwargs: object) -> object:
-            calls.append(kwargs)
-            if isinstance(output, Exception):
-                raise output
-            # Like the SDK, validate the output against the requested format.
-            text_format = kwargs["text_format"]
-            return SimpleNamespace(output_parsed=text_format.model_validate(output))
-
-    class FakeOpenAI:
-        def __init__(
-            self,
-            *,
-            api_key: str,
-            timeout: float,
-            max_retries: int,
-        ) -> None:
-            assert api_key == "test-openai-key"
-            assert timeout == main.OPENAI_TIMEOUT_SECONDS
-            assert max_retries == main.OPENAI_MAX_RETRIES
-            self.responses = FakeResponses()
-
-        def __enter__(self) -> "FakeOpenAI":
-            return self
-
-        def __exit__(self, *_: object) -> None:
-            return None
-
-    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
-    monkeypatch.setattr(main, "OpenAI", FakeOpenAI)
 
 
 def test_chat_requires_authentication_before_calling_openai(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls: list[dict[str, object]] = []
-    _mock_openai(monkeypatch, {}, calls)
+    calls = mock_openai(monkeypatch, {})
 
     response = client.post(
         "/api/boards/any-board/ai/chat",
@@ -94,11 +54,9 @@ def test_chat_applies_supported_operations_and_sends_board_and_history(
             "position": 1,
         },
     ]
-    calls: list[dict[str, object]] = []
-    _mock_openai(
+    calls = mock_openai(
         monkeypatch,
         {"reply": "I updated the board.", "operations": operations},
-        calls,
     )
 
     response = signed_in_client.post(
@@ -169,8 +127,7 @@ def test_chat_cannot_target_another_users_board(
 ) -> None:
     intruder = register(signed_in_client, "intruder")
     board = signed_in_client.get(board_path).json()
-    calls: list[dict[str, object]] = []
-    _mock_openai(
+    calls = mock_openai(
         monkeypatch,
         {
             "reply": "I added the task.",
@@ -185,7 +142,6 @@ def test_chat_cannot_target_another_users_board(
                 },
             ],
         },
-        calls,
     )
 
     response = intruder.post(
@@ -205,8 +161,7 @@ def test_chat_changes_only_the_selected_board(
 ) -> None:
     other = signed_in_client.post("/api/boards", json={"title": "Side"}).json()
     sample = signed_in_client.get(board_path).json()
-    calls: list[dict[str, object]] = []
-    _mock_openai(
+    calls = mock_openai(
         monkeypatch,
         {
             "reply": "Added.",
@@ -221,7 +176,6 @@ def test_chat_changes_only_the_selected_board(
                 },
             ],
         },
-        calls,
     )
 
     response = signed_in_client.post(
@@ -246,11 +200,9 @@ def test_chat_returns_unchanged_board_for_a_no_operation_reply(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     board = signed_in_client.get(board_path).json()
-    calls: list[dict[str, object]] = []
-    _mock_openai(
+    mock_openai(
         monkeypatch,
         {"reply": "The board is already up to date.", "operations": []},
-        calls,
     )
 
     response = signed_in_client.post(
@@ -272,8 +224,7 @@ def test_chat_rejects_invalid_operation_without_partial_mutation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     board = signed_in_client.get(board_path).json()
-    calls: list[dict[str, object]] = []
-    _mock_openai(
+    mock_openai(
         monkeypatch,
         {
             "reply": "I updated the board.",
@@ -296,7 +247,6 @@ def test_chat_rejects_invalid_operation_without_partial_mutation(
                 },
             ],
         },
-        calls,
     )
 
     response = signed_in_client.post(
@@ -329,8 +279,7 @@ def test_chat_returns_generic_error_for_malformed_structured_output(
     output: dict[str, object],
 ) -> None:
     board = signed_in_client.get(board_path).json()
-    calls: list[dict[str, object]] = []
-    _mock_openai(monkeypatch, output, calls)
+    mock_openai(monkeypatch, output)
 
     response = signed_in_client.post(
         f"{board_path}/ai/chat",
@@ -347,8 +296,7 @@ def test_chat_hides_openai_provider_errors(
     board_path: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls: list[dict[str, object]] = []
-    _mock_openai(monkeypatch, main.OpenAIError("provider detail"), calls)
+    mock_openai(monkeypatch, main.OpenAIError("provider detail"))
 
     response = signed_in_client.post(
         f"{board_path}/ai/chat",
@@ -364,12 +312,7 @@ def test_chat_reports_missing_openai_configuration(
     board_path: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setattr(
-        main,
-        "OpenAI",
-        lambda **_: pytest.fail("OpenAI client must not be constructed"),
-    )
+    forbid_openai(monkeypatch)
 
     response = signed_in_client.post(
         f"{board_path}/ai/chat",
@@ -387,8 +330,7 @@ def test_chat_rejects_out_of_range_move_without_partial_mutation(
 ) -> None:
     board = signed_in_client.get(board_path).json()
     card_id = board["columns"][0]["cards"][0]["id"]
-    calls: list[dict[str, object]] = []
-    _mock_openai(
+    mock_openai(
         monkeypatch,
         {
             "reply": "I updated the board.",
@@ -409,7 +351,6 @@ def test_chat_rejects_out_of_range_move_without_partial_mutation(
                 },
             ],
         },
-        calls,
     )
 
     response = signed_in_client.post(

@@ -4,7 +4,7 @@ from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
-from typing import Iterator, Mapping, Sequence
+from typing import Any, Iterator, Mapping, Sequence
 from uuid import uuid4
 
 from app.passwords import hash_password
@@ -14,7 +14,6 @@ INITIAL_USERNAME = "user"
 INITIAL_PASSWORD = "password"
 INITIAL_BOARD_TITLE = "Product launch"
 NEW_USER_BOARD_TITLE = "My first board"
-PRIORITIES = ("none", "low", "medium", "high")
 FIXED_COLUMNS = (
     ("backlog", "Backlog"),
     ("up-next", "Up next"),
@@ -123,6 +122,7 @@ CARDS_TABLE = """
         UNIQUE (board_id, column_id, position)
     )
 """
+COLUMN_FIELDS = "id, title, position, created_at, updated_at"
 CARD_FIELDS = (
     "id, column_id, title, details, priority, due_date, position, "
     "created_at, updated_at"
@@ -202,17 +202,8 @@ class Database:
     ) -> dict[str, object] | None:
         """Create a user with an empty starter board, or None if taken."""
         with self._connection() as connection:
-            timestamp = _timestamp()
-            user_id = str(uuid4())
             try:
-                connection.execute(
-                    """
-                    INSERT INTO users (
-                        id, username, password_hash, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (user_id, username, password_hash, timestamp, timestamp),
-                )
+                user_id = _insert_user(connection, username, password_hash)
             except sqlite3.IntegrityError:
                 return None
             _insert_board(connection, user_id, NEW_USER_BOARD_TITLE, "")
@@ -338,8 +329,8 @@ class Database:
                 return None
             _touch_board(connection, board_id)
             column = connection.execute(
-                """
-                SELECT id, title, position, created_at, updated_at
+                f"""
+                SELECT {COLUMN_FIELDS}
                 FROM board_columns WHERE board_id = ? AND id = ?
                 """,
                 (board_id, column_id),
@@ -358,10 +349,7 @@ class Database:
         with self._connection() as connection:
             if not _owns_board(connection, user_id, board_id):
                 return None
-            card = _create_card(connection, board_id, column_id, fields)
-            if card is not None:
-                _touch_board(connection, board_id)
-            return card
+            return _create_card(connection, board_id, column_id, fields)
 
     def update_card(
         self,
@@ -373,10 +361,7 @@ class Database:
         with self._connection() as connection:
             if not _owns_board(connection, user_id, board_id):
                 return None
-            card = _update_card(connection, board_id, card_id, fields)
-            if card is not None:
-                _touch_board(connection, board_id)
-            return card
+            return _update_card(connection, board_id, card_id, fields)
 
     def move_card(
         self,
@@ -421,9 +406,9 @@ class Database:
         self,
         user_id: str,
         board_id: str,
-        operations: Sequence[Mapping[str, object]],
-    ) -> None:
-        """Apply AI card operations to one board in a single transaction."""
+        operations: Sequence[Mapping[str, Any]],
+    ) -> dict[str, object]:
+        """Apply AI card operations in one transaction; return the board."""
         with self._connection() as connection:
             if not _owns_board(connection, user_id, board_id):
                 raise InvalidBoardOperation
@@ -433,71 +418,46 @@ class Database:
                     card = _create_card(
                         connection,
                         board_id,
-                        str(operation["column_id"]),
+                        operation["column_id"],
                         operation,
                     )
                 elif operation_type == "edit_card":
                     card = _update_card(
                         connection,
                         board_id,
-                        str(operation["card_id"]),
+                        operation["card_id"],
                         operation,
                     )
                 elif operation_type == "move_card":
                     card = _move_card(
                         connection,
                         board_id,
-                        str(operation["card_id"]),
-                        str(operation["column_id"]),
-                        int(str(operation["position"])),
+                        operation["card_id"],
+                        operation["column_id"],
+                        operation["position"],
                     )
                 else:
                     card = None
                 if card is None:
                     raise InvalidBoardOperation
-            if operations:
-                _touch_board(connection, board_id)
+            board = _get_board(connection, user_id, board_id)
+            assert board is not None
+            return board
 
 
 def _seed_initial_user(connection: sqlite3.Connection) -> None:
-    timestamp = _timestamp()
-    user_id = str(uuid4())
-    connection.execute(
-        """
-        INSERT INTO users (
-            id, username, password_hash, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?)
-        """,
-        (
-            user_id,
-            INITIAL_USERNAME,
-            hash_password(INITIAL_PASSWORD),
-            timestamp,
-            timestamp,
-        ),
+    user_id = _insert_user(
+        connection,
+        INITIAL_USERNAME,
+        hash_password(INITIAL_PASSWORD),
     )
     board_id = _insert_board(connection, user_id, INITIAL_BOARD_TITLE, "")
-    positions: dict[str, int] = {}
     for column_id, title, details in SAMPLE_CARDS:
-        position = positions.get(column_id, 0)
-        positions[column_id] = position + 1
-        connection.execute(
-            """
-            INSERT INTO cards (
-                id, board_id, column_id, title, details, position,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                str(uuid4()),
-                board_id,
-                column_id,
-                title,
-                details,
-                position,
-                timestamp,
-                timestamp,
-            ),
+        _create_card(
+            connection,
+            board_id,
+            column_id,
+            {"title": title, "details": details},
         )
 
 
@@ -537,6 +497,24 @@ def _migrate_from_version_1(connection: sqlite3.Connection) -> None:
             CHECK (due_date IS NULL OR date(due_date) IS due_date)
         """,
     )
+
+
+def _insert_user(
+    connection: sqlite3.Connection,
+    username: str,
+    password_hash: str,
+) -> str:
+    timestamp = _timestamp()
+    user_id = str(uuid4())
+    connection.execute(
+        """
+        INSERT INTO users (
+            id, username, password_hash, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        (user_id, username, password_hash, timestamp, timestamp),
+    )
+    return user_id
 
 
 def _insert_board(
@@ -604,8 +582,8 @@ def _get_board(
     if board is None:
         return None
     column_rows = connection.execute(
-        """
-        SELECT id, title, position, created_at, updated_at
+        f"""
+        SELECT {COLUMN_FIELDS}
         FROM board_columns WHERE board_id = ? ORDER BY position
         """,
         (board_id,),
@@ -679,6 +657,7 @@ def _create_card(
             timestamp,
         ),
     )
+    _touch_board(connection, board_id)
     return _get_card(connection, board_id, card_id)
 
 
@@ -707,6 +686,7 @@ def _update_card(
     )
     if cursor.rowcount == 0:
         return None
+    _touch_board(connection, board_id)
     return _get_card(connection, board_id, card_id)
 
 

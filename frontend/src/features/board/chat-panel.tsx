@@ -10,6 +10,7 @@ import {
   type KeyboardEvent,
   type SetStateAction,
 } from "react";
+import { errorMessage } from "@/lib/api";
 import { sendChatMessage } from "./board-api";
 import type { BoardData, ChatMessage } from "./board-data";
 
@@ -61,9 +62,10 @@ export function ChatPanel({
       setQuestion("");
     } catch (requestError) {
       setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "The assistant could not respond. Please try again.",
+        errorMessage(
+          requestError,
+          "The assistant could not respond. Please try again.",
+        ),
       );
     } finally {
       setIsSending(false);
